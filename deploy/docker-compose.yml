@@ -1,0 +1,15 @@
+services:
+  hindsight:
+    image: ghcr.io/vectorize-io/hindsight:latest
+    pull_policy: always
+    ports:
+      - "8888:8888"
+      - "9999:9999"
+    environment:
+      HINDSIGHT_API_LLM_PROVIDER: openai
+      HINDSIGHT_API_LLM_BASE_URL: https://api.deepseek.com/v1
+      HINDSIGHT_API_LLM_MODEL: deepseek-reasoner
+      HINDSIGHT_API_LLM_API_KEY: sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    volumes:
+      - ${HOME}/.hindsight-docker:/home/hindsight/.pg0
+    restart: "always"
