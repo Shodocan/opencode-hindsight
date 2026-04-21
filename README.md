@@ -56,14 +56,31 @@ curl http://localhost:8888/health
 
 ### 2. Install the Plugin
 
+Clone the repository and install dependencies:
+
 ```bash
-# Install opencode-hindsight plugin via npm
-bunx opencode-hindsight@latest install
+# Clone the opencode-hindsight repository
+git clone https://github.com/opencode-community/opencode-hindsight.git
+cd opencode-hindsight
+
+# Install dependencies
+bun install
+
+# Build the plugin
+bun run build
+
+# Link the plugin to OpenCode configuration
+echo '{"plugin": ["file://'$(pwd)'"]}' > ~/.config/opencode/opencode.json
 ```
 
 This will:
+- Clone the plugin source code
+- Install all required dependencies
+- Build the plugin locally
 - Register the plugin in your OpenCode configuration
 - Create the `/hindsight-init` command for codebase indexing
+
+**Note**: Restart OpenCode for the changes to take effect.
 
 ### 3. Configure Connection
 
@@ -103,7 +120,12 @@ hindsight add content="Test memory" type="preference" scope="project"
 ### For Humans
 
 ```bash
-bunx opencode-hindsight@latest install
+# Clone the repository and build from source
+git clone https://github.com/opencode-community/opencode-hindsight.git
+cd opencode-hindsight
+bun install
+bun run build
+echo '{"plugin": ["file://'$(pwd)'"]}' > ~/.config/opencode/opencode.json
 ```
 
 Hindsight runs locally on port 8888 by default. If you need to connect to a different server, set the base URL:
@@ -128,12 +150,19 @@ If you're an LLM agent helping set up opencode-hindsight, follow these steps:
 #### Step 1: Run the installer
 
 ```bash
-bunx opencode-hindsight@latest install --no-tui
+# Clone the repository and build from source
+git clone https://github.com/opencode-community/opencode-hindsight.git
+cd opencode-hindsight
+bun install
+bun run build
+echo '{"plugin": ["file://'$(pwd)'"]}' > ~/.config/opencode/opencode.json
 ```
 
 This will:
 
-- Register the plugin in `~/.config/opencode/opencode.jsonc`
+- Clone the plugin source code and install dependencies
+- Build the plugin locally
+- Register the plugin in `~/.config/opencode/opencode.json` using a file:// path
 - Create the `/hindsight-init` command
 
 #### Step 2: Verify the config
@@ -142,13 +171,15 @@ This will:
 cat ~/.config/opencode/opencode.json
 ```
 
-Should contain:
+Should contain a `file://` path pointing to the plugin directory:
 
 ```json
 {
-  "plugin": ["opencode-hindsight"]
+  "plugin": ["file:///path/to/opencode-hindsight"]
 }
 ```
+
+Replace `/path/to/opencode-hindsight` with the absolute path of the cloned directory.
 
 If not, add it manually:
 
@@ -156,7 +187,7 @@ If not, add it manually:
 
 ```json
 {
-  "plugin": ["opencode-hindsight"]
+  "plugin": ["file:///path/to/opencode-hindsight"]
 }
 ```
 

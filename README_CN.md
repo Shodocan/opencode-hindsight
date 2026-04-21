@@ -53,13 +53,28 @@ curl http://localhost:8888/health
 ### 2. 安装插件
 
 ```bash
-# 通过 npm 安装 opencode-hindsight 插件
-bunx opencode-hindsight@latest install
+# 克隆 opencode-hindsight 仓库
+git clone https://github.com/opencode-community/opencode-hindsight.git
+cd opencode-hindsight
+
+# 安装依赖
+bun install
+
+# 构建插件
+bun run build
+
+# 将插件链接到 OpenCode 配置
+echo '{"plugin": ["file://'$(pwd)'"]}' > ~/.config/opencode/opencode.json
 ```
 
 这将：
+- 克隆插件源代码
+- 安装所有必需的依赖项
+- 在本地构建插件
 - 在您的 OpenCode 配置中注册插件
 - 创建用于代码库索引的 `/hindsight-init` 命令
+
+**注意**：重启 OpenCode 以使更改生效。
 
 ### 3. 配置连接
 
