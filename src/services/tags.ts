@@ -37,7 +37,8 @@ export function getProjectBank(directory: string): string {
   }
 
   // Otherwise, auto-generate based on bankPrefix
-  return `${CONFIG.bankPrefix}_project_${sha256(directory)}`;
+  const projectName = directory.split("/").pop() || "unknown";
+  return `p_${projectName}_${sha256(directory)}`;
 }
 
 export function getBanks(directory: string): { user: string; project: string } {
