@@ -140,7 +140,7 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
           const projectMemories = {
             results: (projectMemoriesList.documents || []).map((m: any) => ({
               id: m.id,
-              text: m.content || m.summary || "",
+              text: m.text || m.content || m.summary || "",
               similarity: 1,
               metadata: m.metadata,
             })),
@@ -306,7 +306,8 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
                 return JSON.stringify({
                   success: true,
                   message: `Memory added to ${scope} scope`,
-                  id: result.id,
+                  operationId: result.operationId,
+                  itemsCount: result.itemsCount,
                   scope,
                   type: args.type,
                 });
@@ -432,9 +433,13 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
                   count: documents.length,
                   memories: documents.map((m: any) => ({
                     id: m.id,
-                    content: m.content || m.summary,
-                    createdAt: m.createdAt,
-                    metadata: m.metadata,
+                    content: m.text || m.content || m.summary,
+                    createdAt: m.date || m.createdAt,
+                    metadata: {
+                      type: m.type,
+                      context: m.context,
+                      entities: m.entities,
+                    },
                   })),
                 });
               }
@@ -448,8 +453,11 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
                 }
 
                 const scope = args.scope || "project";
+                const bank =
+                  scope === "user" ? banks.user : banks.project;
 
                 const result = await hindsightClient.deleteMemory(
+                  bank,
                   args.memoryId
                 );
 
@@ -462,7 +470,7 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
 
                 return JSON.stringify({
                   success: true,
-                  message: `Memory ${args.memoryId} removed from ${scope} scope`,
+                  message: `Memory ${args.memoryId} observations cleared in ${scope} scope`,
                 });
               }
 

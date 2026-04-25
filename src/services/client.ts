@@ -176,35 +176,37 @@ export class HindsightClientWrapper {
     }
   }
 
-  async deleteMemory(memoryId: string) {
-    log("deleteMemory: start", { memoryId });
+  async deleteMemory(bank: string, memoryId: string) {
+    log("deleteMemory: start", { bank, memoryId });
     try {
-      // Hindsight doesn't have direct memory deletion by ID in the basic API
-      // We'll need to implement document deletion if we track document IDs
-      // For now, return success but log warning
-      log("deleteMemory: warning - Hindsight delete not implemented", { memoryId });
-      return { success: true };
+      const url = `${CONFIG.baseUrl}/v1/default/banks/${bank}/memories/${memoryId}/observations`;
+      const response = await fetch(url, { method: "DELETE" });
+      if (!response.ok) {
+        const text = await response.text();
+        log("deleteMemory: http error", { status: response.status, body: text });
+        return { success: false as const, error: `HTTP ${response.status}: ${text}` };
+      }
+      log("deleteMemory: success", { bank, memoryId });
+      return { success: true as const };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       log("deleteMemory: error", { memoryId, error: errorMessage });
-      return { success: false, error: errorMessage };
+      return { success: false as const, error: errorMessage };
     }
   }
 
   async listMemories(bank: string, limit = 20) {
     log("listMemories: start", { bank, limit });
     try {
-      // Hindsight doesn't have a direct list memories API
-      // We can use listDocuments or recall with empty query
       const result = await withTimeout(
-        this.getClient().listDocuments(bank, {
+        this.getClient().listMemories(bank, {
           limit,
           offset: 0,
         }),
         TIMEOUT_MS
       );
-      log("listMemories: success", { count: result.documents?.length || 0 });
-      return { success: true as const, documents: result.documents || [] };
+      log("listMemories: success", { count: result.items?.length || 0 });
+      return { success: true as const, documents: result.items || [] };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       log("listMemories: error", { error: errorMessage });

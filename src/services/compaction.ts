@@ -87,7 +87,7 @@ export function createCompactionHook(
     try {
       const result = await hindsightClient.listMemories(banks.project, CONFIG.maxProjectMemories);
       const documents = result.documents || [];
-      return documents.map((m: any) => m.content || m.summary || "").filter(Boolean);
+      return documents.map((m: any) => m.text || m.content || m.summary || "").filter(Boolean);
     } catch (err) {
       log("[compaction] failed to fetch project memories", { error: String(err) });
       return [];
