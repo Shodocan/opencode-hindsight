@@ -8,7 +8,7 @@ Your agent remembers what you tell it - across sessions, across projects.
 
 ### 1. Deploy Hindsight Server
 
-[Hindsight](https://hindsight.ai) is the semantic memory backend required by this plugin. You need to deploy it first:
+[Hindsight](https://github.com/vectorize-io/hindsight) is the semantic memory backend required by this plugin. You need to deploy it first:
 
 **Using Docker Compose (recommended):**
 This project includes a ready-to-use Docker Compose configuration in the `deploy/` directory that's pre-configured for DeepSeek integration.
@@ -41,7 +41,8 @@ docker run -d \
   --name hindsight \
   -p 8888:8888 \
   -v hindsight_data:/data \
-  vectorizeio/hindsight:latest
+  ghcr.io/vectorize-io/hindsight:latest
+
 ```
 
 **Alternative deployment methods:**

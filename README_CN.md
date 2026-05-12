@@ -8,7 +8,7 @@
 
 ### 1. 部署 Hindsight 服务器
 
-[Hindsight](https://hindsight.ai) 是本插件必需的语义记忆后端。您需要先部署它：
+[Hindsight](https://github.com/vectorize-io/hindsight) 是本插件必需的语义记忆后端。您需要先部署它：
 
 **使用 Docker Compose（推荐）：**
 本项目在 `deploy/` 目录中包含了一个预配置的 Docker Compose 配置，已集成 DeepSeek。
@@ -41,7 +41,8 @@ docker run -d \
   --name hindsight \
   -p 8888:8888 \
   -v hindsight_data:/data \
-  vectorizeio/hindsight:latest
+  ghcr.io/vectorize-io/hindsight:latest
+
 ```
 
 **验证部署：**
