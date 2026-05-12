@@ -1,7 +1,7 @@
 services:
   hindsight:
     image: ghcr.io/vectorize-io/hindsight:latest
-    pull_policy: always
+    pull_policy: if_not_present
     ports:
       - "8888:8888"
       - "9999:9999"
@@ -9,7 +9,10 @@ services:
       HINDSIGHT_API_LLM_PROVIDER: openai
       HINDSIGHT_API_LLM_BASE_URL: https://api.deepseek.com/v1
       HINDSIGHT_API_LLM_MODEL: deepseek-reasoner
-      HINDSIGHT_API_LLM_API_KEY: sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      HINDSIGHT_API_LLM_API_KEY: ${HINDSIGHT_API_LLM_API_KEY}
     volumes:
       - ${HOME}/.hindsight-docker:/home/hindsight/.pg0
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     restart: "always"
