@@ -34,7 +34,7 @@ docker compose up -d
 **使用 Docker（简单方式）：**
 ```bash
 # 拉取最新的 Hindsight 镜像
-docker pull vectorizeio/hindsight:latest
+docker pull ghcr.io/vectorize-io/hindsight:latest
 
 # 在端口 8888 上运行 Hindsight 服务器，使用持久化存储
 docker run -d \
@@ -44,6 +44,16 @@ docker run -d \
   ghcr.io/vectorize-io/hindsight:latest
 
 ```
+
+> **国内用户**：如果无法访问 `ghcr.io`，可使用华为 SWR 镜像：
+> ```bash
+> docker pull swr.cn-north-4.myhuaweicloud.com/cn/hindsight:latest
+> docker run -d \
+>   --name hindsight \
+>   -p 8888:8888 \
+>   -v hindsight_data:/data \
+>   swr.cn-north-4.myhuaweicloud.com/cn/hindsight:latest
+> ```
 
 **验证部署：**
 ```bash

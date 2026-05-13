@@ -34,7 +34,7 @@ docker compose up -d
 **Using Docker (simple):**
 ```bash
 # Pull the latest Hindsight image
-docker pull vectorizeio/hindsight:latest
+docker pull ghcr.io/vectorize-io/hindsight:latest
 
 # Run Hindsight server on port 8888 with persistent storage
 docker run -d \
@@ -44,6 +44,16 @@ docker run -d \
   ghcr.io/vectorize-io/hindsight:latest
 
 ```
+
+> **For Chinese users**: If you cannot access `ghcr.io`, use the Huawei SWR mirror:
+> ```bash
+> docker pull swr.cn-north-4.myhuaweicloud.com/cn/hindsight:latest
+> docker run -d \
+>   --name hindsight \
+>   -p 8888:8888 \
+>   -v hindsight_data:/data \
+>   swr.cn-north-4.myhuaweicloud.com/cn/hindsight:latest
+> ```
 
 **Alternative deployment methods:**
 - **Binary release**: Download pre-built binaries from [Hindsight releases](https://github.com/vectorize-io/hindsight/releases)
