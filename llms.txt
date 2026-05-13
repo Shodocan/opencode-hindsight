@@ -1,0 +1,137 @@
+# opencode-hindsight
+
+**OpenCode implementation of Hindsight plugin** — Provides persistent memory for OpenCode AI assistants across sessions and projects.
+
+## Project Overview
+
+opencode-hindsight is an OpenCode plugin that gives AI coding agents persistent, semantic memory using [Hindsight](https://github.com/vectorize-io/hindsight) as the backend. It stores memories across sessions and projects, auto-detects when to save, injects relevant context on first message, and handles context compaction.
+
+### Repository
+- GitHub: https://github.com/opencode-community/opencode-hindsight
+- Gitee: https://gitee.com/zwidny/opencode-hindsight
+
+## Quick Start
+
+### 1. Deploy Hindsight Server
+
+Hindsight is the semantic memory backend. Deploy via Docker Compose (pre-configured for DeepSeek):
+
+```bash
+cd deploy/
+echo "HINDSIGHT_API_LLM_API_KEY=your-deepseek-api-key" > .env
+docker compose up -d
+```
+
+For Chinese users unable to access ghcr.io, use the Huawei SWR mirror:
+```bash
+docker pull swr.cn-north-4.myhuaweicloud.com/cn/hindsight:latest
+docker run -d --name hindsight -p 8888:8888 -v hindsight_data:/data swr.cn-north-4.myhuaweicloud.com/cn/hindsight:latest
+```
+
+Verify: `curl http://localhost:8888/health` → `{"status":"healthy","database":"connected"}`
+
+### 2. Install the Plugin
+
+```bash
+git clone https://github.com/opencode-community/opencode-hindsight.git
+cd opencode-hindsight
+bun install
+bun run build
+echo '{"plugin": ["file://'$(pwd)'"]}' > ~/.config/opencode/opencode.json
+```
+
+Restart OpenCode to load the plugin.
+
+### 3. Configure Connection
+
+Default: connects to `localhost:8888`. Override via:
+- Env var: `export HINDSIGHT_BASE_URL="http://localhost:8888"`
+- Config file: `~/.config/opencode/hindsight.jsonc` with `{"baseUrl": "http://localhost:8888"}`
+
+## Project Structure
+
+| Path | Purpose |
+|---|---|
+| `src/index.ts` | Plugin entry point — registers OpenCode hooks (`chat.message`, `tool.hindsight`, `event`) |
+| `src/cli.ts` | CLI installer and `/hindsight-init` command |
+| `src/config.ts` | Configuration loading (env > config file > defaults) and type definitions |
+| `src/services/client.ts` | Hindsight API client wrapper (search, add, delete, list, profile, ingest) |
+| `src/services/context.ts` | Formats memories into prompt context blocks |
+| `src/services/compaction.ts` | Context window compaction and session summarization |
+| `src/services/tags.ts` | Auto-generates bank names using SHA-256 hashes |
+| `src/services/privacy.ts` | Strips `<private>...</private>` content from memories |
+| `src/services/jsonc.ts` | Strips JSONC comments for config parsing |
+| `src/services/logger.ts` | File-based logging to `~/.opencode-hindsight.log` |
+| `src/types/index.ts` | Shared TypeScript type definitions |
+| `deploy/docker-compose.yml` | Docker Compose setup for Hindsight server (DeepSeek integration) |
+| `deploy/.env.example` | Environment variable template for deployment |
+| `package.json` | Package manifest (ESM, v1.0.0, MIT) |
+
+## Dependencies
+
+| Package | Version | Purpose |
+|---|---|---|
+| `@opencode-ai/plugin` | ^1.0.162 | OpenCode plugin SDK |
+| `@vectorize-io/hindsight-client` | ^0.5.3 | Hindsight REST API client |
+
+## Scripts
+
+| Script | Command |
+|---|---|
+| `build` | `bun build ./src/index.ts --outdir ./dist --target node && bun build ./src/cli.ts --outfile ./dist/cli.js --target node && tsc --emitDeclarationOnly` |
+| `dev` | `tsc --watch` |
+| `typecheck` | `tsc --noEmit` |
+
+## Architecture
+
+### Plugin Hooks
+- **`chat.message`**: On first message in a session, injects user profile + project memories as context. Scans user messages for memory trigger keywords (e.g., "remember", "save this").
+- **`tool.hindsight`**: Exposes a single `hindsight` tool with modes: `add`, `search`, `profile`, `list`, `forget`, `help`. Supports scopes (`user`/`project`) and types (`project-config`, `architecture`, `error-solution`, `preference`, `learned-pattern`, `conversation`).
+- **`event`**: Handles `session.deleted` and `message.updated` for context compaction.
+
+### Memory Scopes
+| Scope | Tag | Persists |
+|---|---|---|
+| User | `hindsight_user_{sha256(git_email)}` | All projects |
+| Project | `hindsight_project_{sha256(directory)}` | This project |
+
+### Configuration (`~/.config/opencode/hindsight.jsonc`)
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `baseUrl` | string | `http://localhost:8888` | Hindsight server URL |
+| `similarityThreshold` | number | `0.6` | Min similarity for memory retrieval (0-1) |
+| `maxMemories` | number | `5` | Max memories injected per request |
+| `maxProjectMemories` | number | `10` | Max project memories listed |
+| `maxProfileItems` | number | `5` | Max profile facts injected |
+| `injectProfile` | boolean | `true` | Include user profile in context |
+| `bankPrefix` | string | `"opencode"` | Prefix for auto-generated bank names |
+| `userBank` | string | — | Explicit user bank name |
+| `projectBank` | string | — | Explicit project bank name |
+| `maxTokens` | number | `4096` | Max tokens for recall operations |
+| `budget` | string | `"mid"` | Recall budget: `low`, `mid`, or `high` |
+| `keywordPatterns` | string[] | — | Extra regex patterns for memory detection |
+| `compactionThreshold` | number | `0.8` | Context usage ratio triggering compaction |
+
+### Important Notes
+- **`add` operation is asynchronous by default** to prevent timeouts during memory processing
+- **Metadata values must be strings** — non-string values are auto-converted
+- **Response includes `operationId`** for tracking async operations
+- **API timeout** is 120 seconds
+
+## Key Implementation Details
+
+### Bank Selection
+Banks are auto-generated: `{prefix}_user_{sha256(git_email)}` for user, `{prefix}_project_{sha256(cwd)}` for project. Override via `userBank`/`projectBank` config.
+
+### Privacy
+Content wrapped in `<private>...</private>` tags is never stored in Hindsight. Detection and stripping happen client-side before API calls.
+
+### Compaction
+When context usage reaches `compactionThreshold` (default 80%):
+1. Triggers OpenCode's summarization
+2. Injects project memories into summary context
+3. Saves session summary as a memory
+
+### Context Injection
+On first message, the agent receives a `[HINDSIGHT]` block containing user profile facts, project memories, and relevant user memories — invisible to the user.
