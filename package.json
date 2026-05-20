@@ -29,7 +29,7 @@
   },
   "dependencies": {
     "@opencode-ai/plugin": "^1.0.162",
-    "@vectorize-io/hindsight-client": "^0.5.3"
+    "@vectorize-io/hindsight-client": "0.6.2"
   },
   "devDependencies": {
     "@types/bun": "latest",

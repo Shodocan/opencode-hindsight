@@ -52,6 +52,7 @@ export class HindsightClientWrapper {
       if (!isConfigured()) {
         throw new Error("Hindsight baseUrl not configured");
       }
+      log("client: creating HindsightClient", { baseUrl: CONFIG.baseUrl });
       this.client = new HindsightClient({ 
         baseUrl: CONFIG.baseUrl 
       });
@@ -60,7 +61,7 @@ export class HindsightClientWrapper {
   }
 
   async searchMemories(query: string, bank: string) {
-    log("searchMemories: start", { bank });
+    log("searchMemories: start", { bank, baseUrl: CONFIG.baseUrl, queryLength: query.length });
     try {
       const result = await withTimeout(
         this.getClient().recall(bank, query, {
@@ -73,7 +74,7 @@ export class HindsightClientWrapper {
       return { success: true as const, ...result };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      log("searchMemories: error", { error: errorMessage });
+      log("searchMemories: error", { error: errorMessage, stack: error instanceof Error ? error.stack : undefined });
       return { success: false as const, error: errorMessage, results: [], total: 0, timing: 0 };
     }
   }
@@ -196,7 +197,7 @@ export class HindsightClientWrapper {
   }
 
   async listMemories(bank: string, limit = 20) {
-    log("listMemories: start", { bank, limit });
+    log("listMemories: start", { bank, limit, baseUrl: CONFIG.baseUrl });
     try {
       const result = await withTimeout(
         this.getClient().listMemories(bank, {
@@ -209,7 +210,7 @@ export class HindsightClientWrapper {
       return { success: true as const, documents: result.items || [] };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      log("listMemories: error", { error: errorMessage });
+      log("listMemories: error", { error: errorMessage, stack: error instanceof Error ? error.stack : undefined });
       return { success: false as const, error: errorMessage, documents: [] };
     }
   }

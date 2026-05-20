@@ -182,7 +182,7 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
     tool: {
       hindsight: tool({
         description:
-          "Manage and query the Hindsight persistent memory system. Use 'search' to find relevant memories, 'add' to store new knowledge, 'profile' to view user profile, 'list' to see recent memories, 'forget' to remove a memory.",
+          "Manage and query the Hindsight persistent memory system. Always call this tool as `hindsight(mode:\"search/add/profile/list/forget\", ...)`, for example: hindsight(mode:\"search\", query:\"keyword\") or hindsight(mode:\"add\", content:\"memory\"). Do NOT use hindsight_search, hindsight_list, or similar auto-generated names.",
         args: {
           mode: tool.schema
             .enum(["add", "search", "profile", "list", "forget", "help"])
@@ -212,6 +212,9 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
           memoryId?: string;
           limit?: number;
         }) {
+          const mode = args.mode || "help";
+          log("tool.execute: start", { mode, baseUrl: CONFIG.baseUrl, configured: isConfigured(), args: { ...args } });
+
           if (!isConfigured()) {
             return JSON.stringify({
               success: false,
@@ -220,8 +223,6 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
             });
           }
 
-          const mode = args.mode || "help";
-
           try {
             switch (mode) {
               case "help": {
@@ -229,245 +230,104 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
                   success: true,
                   message: "Hindsight Usage Guide",
                   commands: [
-                    {
-                      command: "add",
-                      description: "Store a new memory",
-                      args: ["content", "type?", "scope?"],
-                    },
-                    {
-                      command: "search",
-                      description: "Search memories",
-                      args: ["query", "scope?"],
-                    },
-                    {
-                      command: "profile",
-                      description: "View user profile",
-                      args: ["query?"],
-                    },
-                    {
-                      command: "list",
-                      description: "List recent memories",
-                      args: ["scope?", "limit?"],
-                    },
-                    {
-                      command: "forget",
-                      description: "Remove a memory",
-                      args: ["memoryId", "scope?"],
-                    },
+                    { command: "add", description: "Store a new memory", args: ["content", "type?", "scope?"] },
+                    { command: "search", description: "Search memories", args: ["query", "scope?"] },
+                    { command: "profile", description: "View user profile", args: ["query?"] },
+                    { command: "list", description: "List recent memories", args: ["scope?", "limit?"] },
+                    { command: "forget", description: "Remove a memory", args: ["memoryId", "scope?"] },
                   ],
-                  scopes: {
-                    user: "Cross-project preferences and knowledge",
-                    project: "Project-specific knowledge (default)",
-                  },
-                  types: [
-                    "project-config",
-                    "architecture",
-                    "error-solution",
-                    "preference",
-                    "learned-pattern",
-                    "conversation",
-                  ],
+                  scopes: { user: "Cross-project preferences and knowledge", project: "Project-specific knowledge (default)" },
+                  types: ["project-config", "architecture", "error-solution", "preference", "learned-pattern", "conversation"],
                 });
               }
 
               case "add": {
                 if (!args.content) {
-                  return JSON.stringify({
-                    success: false,
-                    error: "content parameter is required for add mode",
-                  });
+                  return JSON.stringify({ success: false, error: "content parameter is required" });
                 }
-
                 const sanitizedContent = stripPrivateContent(args.content);
                 if (isFullyPrivate(args.content)) {
-                  return JSON.stringify({
-                    success: false,
-                    error: "Cannot store fully private content",
-                  });
+                  return JSON.stringify({ success: false, error: "Cannot store fully private content" });
                 }
-
                 const scope = args.scope || "project";
-                const bank =
-                  scope === "user" ? banks.user : banks.project;
-
-                const result = await hindsightClient.addMemory(
-                  sanitizedContent,
-                  bank,
-                  { type: args.type }
-                );
-
+                const bank = scope === "user" ? banks.user : banks.project;
+                const result = await hindsightClient.addMemory(sanitizedContent, bank, { type: args.type });
                 if (!result.success) {
-                  return JSON.stringify({
-                    success: false,
-                    error: result.error || "Failed to add memory",
-                  });
+                  return JSON.stringify({ success: false, error: result.error || "Failed to add memory" });
                 }
-
                 return JSON.stringify({
-                  success: true,
-                  message: `Memory added to ${scope} scope`,
-                  operationId: result.operationId,
-                  itemsCount: result.itemsCount,
-                  scope,
-                  type: args.type,
+                  success: true, message: `Memory added to ${scope} scope`,
+                  operationId: result.operationId, itemsCount: result.itemsCount, scope, type: args.type,
                 });
               }
 
               case "search": {
                 if (!args.query) {
-                  return JSON.stringify({
-                    success: false,
-                    error: "query parameter is required for search mode",
-                  });
+                  return JSON.stringify({ success: false, error: "query parameter is required" });
                 }
-
                 const scope = args.scope;
-
                 if (scope === "user") {
-                  const result = await hindsightClient.searchMemories(
-                    args.query,
-                    banks.user
-                  );
-                  if (!result.success) {
-                    return JSON.stringify({
-                      success: false,
-                      error: result.error || "Failed to search memories",
-                    });
-                  }
+                  const result = await hindsightClient.searchMemories(args.query, banks.user);
+                  if (!result.success) return JSON.stringify({ success: false, error: result.error || "Failed to search memories" });
                   return formatSearchResults(args.query, scope, result, args.limit);
                 }
-
                 if (scope === "project") {
-                  const result = await hindsightClient.searchMemories(
-                    args.query,
-                    banks.project
-                  );
-                  if (!result.success) {
-                    return JSON.stringify({
-                      success: false,
-                      error: result.error || "Failed to search memories",
-                    });
-                  }
+                  const result = await hindsightClient.searchMemories(args.query, banks.project);
+                  if (!result.success) return JSON.stringify({ success: false, error: result.error || "Failed to search memories" });
                   return formatSearchResults(args.query, scope, result, args.limit);
                 }
-
                 const [userResult, projectResult] = await Promise.all([
                   hindsightClient.searchMemories(args.query, banks.user),
                   hindsightClient.searchMemories(args.query, banks.project),
                 ]);
-
                 if (!userResult.success || !projectResult.success) {
-                  return JSON.stringify({
-                    success: false,
-                    error: userResult.error || projectResult.error || "Failed to search memories",
-                  });
+                  return JSON.stringify({ success: false, error: userResult.error || projectResult.error || "Failed to search memories" });
                 }
-
                 const combined = [
-                  ...(userResult.results || []).map((r) => ({
-                    ...r,
-                    scope: "user" as const,
-                  })),
-                  ...(projectResult.results || []).map((r) => ({
-                    ...r,
-                    scope: "project" as const,
-                  })),
+                  ...(userResult.results || []).map((r) => ({ ...r, scope: "user" as const })),
+                  ...(projectResult.results || []).map((r) => ({ ...r, scope: "project" as const })),
                 ].sort((a, b) => ((b as any).similarity ?? 0) - ((a as any).similarity ?? 0));
-
                 return JSON.stringify({
-                  success: true,
-                  query: args.query,
-                  count: combined.length,
+                  success: true, query: args.query, count: combined.length,
                   results: combined.slice(0, args.limit || 10).map((r) => ({
-                    id: r.id,
-                    content: r.text || (r as any).memory || "",
-                    similarity: Math.round(((r as any).similarity ?? 0) * 100),
-                    scope: r.scope,
+                    id: r.id, content: r.text || (r as any).memory || "",
+                    similarity: Math.round(((r as any).similarity ?? 0) * 100), scope: r.scope,
                   })),
                 });
               }
 
               case "profile": {
-                const result = await hindsightClient.getProfile(
-                  banks.user,
-                  args.query
-                );
-
-                if (!result.success) {
-                  return JSON.stringify({
-                    success: false,
-                    error: result.error || "Failed to fetch profile",
-                  });
-                }
-
+                const result = await hindsightClient.getProfile(banks.user, args.query);
+                if (!result.success) return JSON.stringify({ success: false, error: result.error || "Failed to fetch profile" });
                 return JSON.stringify({
                   success: true,
-                  profile: {
-                    static: result.results?.slice(0, CONFIG.maxProfileItems) || [],
-                  },
+                  profile: { static: result.results?.slice(0, CONFIG.maxProfileItems) || [] },
                 });
               }
 
               case "list": {
                 const scope = args.scope || "project";
                 const limit = args.limit || 20;
-                const bank =
-                  scope === "user" ? banks.user : banks.project;
-
-                const result = await hindsightClient.listMemories(
-                  bank,
-                  limit
-                );
-
-                if (!result.success) {
-                  return JSON.stringify({
-                    success: false,
-                    error: result.error || "Failed to list memories",
-                  });
-                }
-
+                const bank = scope === "user" ? banks.user : banks.project;
+                const result = await hindsightClient.listMemories(bank, limit);
+                if (!result.success) return JSON.stringify({ success: false, error: result.error || "Failed to list memories" });
                 const documents = result.documents || [];
                 return JSON.stringify({
-                  success: true,
-                  scope,
-                  count: documents.length,
+                  success: true, scope, count: documents.length,
                   memories: documents.map((m: any) => ({
-                    id: m.id,
-                    content: m.text || m.content || m.summary,
+                    id: m.id, content: m.text || m.content || m.summary,
                     createdAt: m.date || m.createdAt,
-                    metadata: {
-                      type: m.type,
-                      context: m.context,
-                      entities: m.entities,
-                    },
+                    metadata: { type: m.type, context: m.context, entities: m.entities },
                   })),
                 });
               }
 
               case "forget": {
-                if (!args.memoryId) {
-                  return JSON.stringify({
-                    success: false,
-                    error: "memoryId parameter is required for forget mode",
-                  });
-                }
-
+                if (!args.memoryId) return JSON.stringify({ success: false, error: "memoryId parameter is required" });
                 const scope = args.scope || "project";
-                const bank =
-                  scope === "user" ? banks.user : banks.project;
-
-                const result = await hindsightClient.deleteMemory(
-                  bank,
-                  args.memoryId
-                );
-
-                if (!result.success) {
-                  return JSON.stringify({
-                    success: false,
-                    error: result.error || "Failed to delete memory",
-                  });
-                }
-
+                const bank = scope === "user" ? banks.user : banks.project;
+                const result = await hindsightClient.deleteMemory(bank, args.memoryId);
+                if (!result.success) return JSON.stringify({ success: false, error: result.error || "Failed to delete memory" });
                 return JSON.stringify({
                   success: true,
                   message: `Memory ${args.memoryId} observations cleared in ${scope} scope`,
@@ -475,16 +335,12 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
               }
 
               default:
-                return JSON.stringify({
-                  success: false,
-                  error: `Unknown mode: ${mode}`,
-                });
+                return JSON.stringify({ success: false, error: `Unknown mode: ${mode}` });
             }
           } catch (error) {
-            return JSON.stringify({
-              success: false,
-              error: error instanceof Error ? error.message : String(error),
-            });
+            const msg = error instanceof Error ? error.message : String(error);
+            log("tool.execute: EXCEPTION", { mode, error: msg, stack: error instanceof Error ? error.stack : undefined });
+            return JSON.stringify({ success: false, error: msg });
           }
         },
       }),

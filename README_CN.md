@@ -122,10 +122,42 @@ hindsight add content="测试记忆" type="preference" scope="project"
 
 ### 上下文注入
 
-在第一条消息时，AI 助手会接收（对用户不可见）：
-- 用户个人资料（跨项目偏好）
-- 项目记忆（所有项目知识）
-- 相关的用户记忆（语义搜索）
+上下文注入在用户发送**新会话的第一条消息**时自动触发 — 而不是在 OpenCode 启动时。机制如下：
+
+1. **检测**：`chat.message` hook 通过内存中的 `injectedSessions` Set 检查当前会话 ID 是否已见过
+2. **仅首条消息**：如果会话 ID 不在 Set 中，立即标记（防止同一会话后续消息重复注入）
+3. **三个并行 API 调用**，使用用户消息作为搜索查询：
+   - `getProfile(banks.user, userMessage)` — 通过语义搜索检索跨项目用户个人资料
+   - `searchMemories(userMessage, banks.user)` — 通过语义搜索检索相关的用户范围记忆
+   - `listMemories(banks.project, maxProjectMemories)` — 列出最新 N 条项目记忆（无相关性过滤，均显示 `[100%]` 相似度）
+4. **格式化与注入**：结果格式化为 `[HINDSIGHT]` 上下文块，作为不可见的 synthetic `Part` 前置到消息中 — 用户不可见，仅 AI 模型可见
+
+**注入时机总结：**
+
+| 事件 | 行为 |
+|---|---|
+| OpenCode 启动 | 不注入 |
+| 用户发送第一条消息 | hook 触发 → 注入完成 → 处理消息 |
+| 用户发送第二条消息 | hook 触发但会话已标记 → 跳过注入 |
+
+示例（AI 模型看到的内容）：
+
+```
+[HINDSIGHT]
+
+User Profile:
+- 偏好简洁回复
+- TypeScript 专家
+
+Project Knowledge:
+- [100%] 使用 Bun 而非 Node.js
+- [100%] 构建命令：bun run build
+
+Relevant Memories:
+- [82%] 缺少 .env.local 时构建失败
+```
+
+AI 助手自动使用此上下文 — 无需手动提示。
 
 ### 关键词检测
 

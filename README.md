@@ -258,11 +258,23 @@ Replace `/path/to/opencode-hindsight` with the absolute path to the plugin direc
 
 ### Context Injection
 
-On first message, the agent receives (invisible to user):
+Context injection happens automatically when the user sends the **first message** of a new session — not when OpenCode starts up. The mechanism works as follows:
 
-- User profile (cross-project preferences)
-- Project memories (all project knowledge)
-- Relevant user memories (semantic search)
+1. **Detection**: The `chat.message` hook checks whether the current session ID has been seen before via an in-memory `injectedSessions` Set
+2. **First message only**: If the session ID is not in the Set, it's added immediately (preventing double-injection on subsequent messages in the same session)
+3. **Three parallel API calls** are made using the user's message as the search query:
+   - `getProfile(banks.user, userMessage)` — retrieves cross-project user profile facts via semantic search
+   - `searchMemories(userMessage, banks.user)` — retrieves relevant user-scoped memories via semantic search
+   - `listMemories(banks.project, maxProjectMemories)` — lists the latest N project memories (no relevance filtering, all have `[100%]` similarity)
+4. **Format & Inject**: Results are formatted into the `[HINDSIGHT]` context block and prepended as a synthetic `Part` to the message parts — invisible to the user, visible only to the AI model
+
+**Timing summary:**
+
+| Event | When |
+|---|---|
+| OpenCode starts | No injection |
+| User sends first message | Hook fires → injection happens → message processed |
+| User sends second message | Hook fires but session already marked → skip injection |
 
 Example of what the agent sees:
 
