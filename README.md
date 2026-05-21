@@ -55,6 +55,26 @@ docker run -d \
 >   swr.cn-north-4.myhuaweicloud.com/cn/hindsight:latest
 > ```
 
+**Offline / No-network access:**
+
+When running in an environment without internet access, Hindsight will fail to download embedding and reranker models from HuggingFace. To use pre-downloaded local models:
+
+```yaml
+# docker-compose.yml additions
+environment:
+  HINDSIGHT_API_EMBEDDINGS_PROVIDER: local
+  HINDSIGHT_API_EMBEDDINGS_LOCAL_MODEL: /home/hindsight/models/bge-m3
+  HINDSIGHT_API_RERANKER_PROVIDER: local
+  HINDSIGHT_API_RERANKER_LOCAL_MODEL: /home/hindsight/models/bge-reranker-v2-m3
+volumes:
+  - /path/to/your/models/bge-m3:/home/hindsight/models/bge-m3
+  - /path/to/your/models/bge-reranker-v2-m3:/home/hindsight/models/bge-reranker-v2-m3
+```
+
+Models can be pre-downloaded from [ModelScope](https://modelscope.cn) or [HuggingFace](https://huggingface.co) on a machine with internet, then mounted into the container. The default models are `BAAI/bge-small-en-v1.5` (embeddings, 384-dim) and `cross-encoder/ms-marco-MiniLM-L-6-v2` (reranker).
+
+> **Note**: If changing the embedding model after the database is initialized, you must clear existing data first: stop the container, run `rm -rf ~/.hindsight-docker`, then restart.
+
 **Alternative deployment methods:**
 - **Binary release**: Download pre-built binaries from [Hindsight releases](https://github.com/vectorize-io/hindsight/releases)
 - **From source**: Clone and build from [Hindsight repository](https://github.com/vectorize-io/hindsight)

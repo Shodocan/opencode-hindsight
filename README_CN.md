@@ -55,6 +55,26 @@ docker run -d \
 >   swr.cn-north-4.myhuaweicloud.com/cn/hindsight:latest
 > ```
 
+**离线/无网络环境：**
+
+在无网络环境下运行时，Hindsight 无法从 HuggingFace 下载 embedding 和 reranker 模型。可使用预下载的本地模型：
+
+```yaml
+# docker-compose.yml 补充配置
+environment:
+  HINDSIGHT_API_EMBEDDINGS_PROVIDER: local
+  HINDSIGHT_API_EMBEDDINGS_LOCAL_MODEL: /home/hindsight/models/bge-m3
+  HINDSIGHT_API_RERANKER_PROVIDER: local
+  HINDSIGHT_API_RERANKER_LOCAL_MODEL: /home/hindsight/models/bge-reranker-v2-m3
+volumes:
+  - /path/to/your/models/bge-m3:/home/hindsight/models/bge-m3
+  - /path/to/your/models/bge-reranker-v2-m3:/home/hindsight/models/bge-reranker-v2-m3
+```
+
+可从 [ModelScope](https://modelscope.cn) 或 [HuggingFace](https://huggingface.co) 在有网络的机器上预下载模型，然后挂载到容器中。默认模型为 `BAAI/bge-small-en-v1.5`（embedding，384维）和 `cross-encoder/ms-marco-MiniLM-L-6-v2`（reranker）。
+
+> **注意**：如果数据库已初始化后更换 embedding 模型，需先清除旧数据：停止容器，执行 `rm -rf ~/.hindsight-docker`，再重新启动。
+
 **验证部署：**
 ```bash
 curl http://localhost:8888/health
