@@ -199,15 +199,25 @@ export class HindsightClientWrapper {
   async listMemories(bank: string, limit = 20) {
     log("listMemories: start", { bank, limit, baseUrl: CONFIG.baseUrl });
     try {
+      // 用 recall + 通用 query 获取记忆 (替代 deprecated listDocuments API)
       const result = await withTimeout(
-        this.getClient().listMemories(bank, {
-          limit,
-          offset: 0,
+        this.getClient().recall(bank, "recent memories and updates", {
+          maxTokens: Math.min(limit * 500, CONFIG.maxTokens),
+          budget: "mid",
         }),
         TIMEOUT_MS
       );
-      log("listMemories: success", { count: result.items?.length || 0 });
-      return { success: true as const, documents: result.items || [] };
+      log("listMemories: success", { count: result.results?.length || 0 });
+      return {
+        success: true as const,
+        documents: (result.results || []).map((r: any) => ({
+          id: r.id,
+          text: r.text || r.memory || r.content || "",
+          similarity: r.similarity,
+          metadata: r.metadata,
+          date: r.timestamp || r.date,
+        })),
+      };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       log("listMemories: error", { error: errorMessage, stack: error instanceof Error ? error.stack : undefined });

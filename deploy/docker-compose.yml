@@ -10,8 +10,14 @@ services:
       HINDSIGHT_API_LLM_BASE_URL: https://api.deepseek.com/v1
       HINDSIGHT_API_LLM_MODEL: deepseek-reasoner
       HINDSIGHT_API_LLM_API_KEY: ${HINDSIGHT_API_LLM_API_KEY}
+      HINDSIGHT_API_EMBEDDINGS_PROVIDER: local
+      HINDSIGHT_API_EMBEDDINGS_LOCAL_MODEL: /home/hindsight/models/bge-m3
+      HINDSIGHT_API_RERANKER_PROVIDER: local
+      HINDSIGHT_API_RERANKER_LOCAL_MODEL: /home/hindsight/models/bge-reranker-v2-m3
     volumes:
       - ${HOME}/.hindsight-docker:/home/hindsight/.pg0
+      - /data/.cache/modelscope/hub/models/BAAI/bge-m3:/home/hindsight/models/bge-m3
+      - /data/.cache/modelscope/hub/models/BAAI/bge-reranker-v2-m3:/home/hindsight/models/bge-reranker-v2-m3
     dns:
       - 8.8.8.8
       - 1.1.1.1

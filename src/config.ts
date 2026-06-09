@@ -42,12 +42,19 @@ const DEFAULT_KEYWORD_PATTERNS = [
   "remember\\s+that",
   "never\\s+forget",
   "always\\s+remember",
+  "记住",
+  "记下来",
+  "记录.*(一下|下来|API|接口|域名|汇总)",
+  "别忘了",
+  "下次注意",
+  "备忘",
+  "存下来",
 ];
 
 const DEFAULTS: Required<Omit<HindsightConfig, "userBank" | "projectBank" | "baseUrl">> = {
   similarityThreshold: 0.6,
   maxMemories: 5,
-  maxProjectMemories: 10,
+  maxProjectMemories: 20,
   maxProfileItems: 5,
   injectProfile: true,
   bankPrefix: "opencode",

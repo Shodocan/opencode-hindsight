@@ -11,9 +11,42 @@ import { createCompactionHook, type CompactionContext } from "./services/compact
 import { isConfigured, CONFIG } from "./config.js";
 import { log } from "./services/logger.js";
 import type { MemoryScope, MemoryType } from "./types/index.js";
+import { createHash } from "node:crypto";
 
 const CODE_BLOCK_PATTERN = /```[\s\S]*?```/g;
 const INLINE_CODE_PATTERN = /`[^`]+`/g;
+
+function hashContent(content: string): string {
+  return createHash("sha256").update(content).digest("hex").slice(0, 12);
+}
+
+function extractEntities(content: string): Array<{ text: string; type?: string }> {
+  // 提取域名、API路径、带标记的关键词
+  const entities: Array<{ text: string; type?: string }> = [];
+
+  // 域名: xxx.xxx.xxx 或 https?://xxx.xxx.xxx
+  const domainRe = /(?:https?:\/\/)?([a-zA-Z0-9][-a-zA-Z0-9]*(?:\.[a-zA-Z0-9][-a-zA-Z0-9]*)+)/g;
+  const seen = new Set<string>();
+  for (const m of content.matchAll(domainRe)) {
+    const d = m[1]?.toLowerCase();
+    if (d && !seen.has(d) && d.length < 60) {
+      seen.add(d);
+      entities.push({ text: d, type: "domain" });
+    }
+  }
+
+  // API 路径: /path/to/endpoint
+  const apiRe = /\/[a-zA-Z0-9._/-]+/g;
+  for (const m of content.matchAll(apiRe)) {
+    const p = m[0];
+    if (p.length > 5 && p.length < 80 && !seen.has(p)) {
+      seen.add(p);
+      entities.push({ text: p, type: "api_path" });
+    }
+  }
+
+  return entities.slice(0, 20);
+}
 
 const MEMORY_KEYWORD_PATTERN = new RegExp(`\\b(${CONFIG.keywordPatterns.join("|")})\\b`, "i");
 
@@ -251,13 +284,29 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
                 }
                 const scope = args.scope || "project";
                 const bank = scope === "user" ? banks.user : banks.project;
-                const result = await hindsightClient.addMemory(sanitizedContent, bank, { type: args.type });
+                const memType = args.type || "learned-pattern";
+
+                // 架构类: documentId 覆盖更新 + verbatim 标签避免压缩
+                const isArchitecture = memType === "architecture";
+                const docOptions = isArchitecture ? {
+                  documentId: `arch_${hashContent(sanitizedContent)}`,
+                  updateMode: 'replace' as const,
+                  tags: ["verbatim", "architecture"],
+                  entities: extractEntities(sanitizedContent),
+                } : {};
+
+                const result = await hindsightClient.addMemory(
+                  sanitizedContent, bank,
+                  { type: memType, tool: "hindsight" },
+                  docOptions
+                );
                 if (!result.success) {
                   return JSON.stringify({ success: false, error: result.error || "Failed to add memory" });
                 }
                 return JSON.stringify({
                   success: true, message: `Memory added to ${scope} scope`,
-                  operationId: result.operationId, itemsCount: result.itemsCount, scope, type: args.type,
+                  operationId: result.operationId, itemsCount: result.itemsCount,
+                  scope, type: args.type, replaced: isArchitecture,
                 });
               }
 
