@@ -33,6 +33,17 @@ describe("resolveBanks — agent-aware project bank routing", () => {
       const result2 = resolveBanks(input, baseOptions);
       expect(result1.project).toBe(result2.project);
     });
+
+    it("reports projectSource 'generated' with no agent metadata", () => {
+      const result = resolveBanks(
+        { directory: "/home/user/projects/my-app" },
+        baseOptions,
+      );
+      expect(result.projectSource).toBe("generated");
+      expect(result.agent).toBeUndefined();
+      expect(result.agentPattern).toBeUndefined();
+      expect(result.projectBankAlias).toBeUndefined();
+    });
   });
 
   describe("config projectBank fallback", () => {
@@ -48,6 +59,23 @@ describe("resolveBanks — agent-aware project bank routing", () => {
         },
       );
       expect(result.project).toBe("my-explicit-bank");
+    });
+
+    it("reports projectSource 'config:projectBank' with no agent metadata", () => {
+      const result = resolveBanks(
+        { directory: "/home/user/projects/my-app" },
+        {
+          ...baseOptions,
+          config: {
+            ...baseOptions.config,
+            projectBank: "my-explicit-bank",
+          },
+        },
+      );
+      expect(result.projectSource).toBe("config:projectBank");
+      expect(result.agent).toBeUndefined();
+      expect(result.agentPattern).toBeUndefined();
+      expect(result.projectBankAlias).toBeUndefined();
     });
   });
 
@@ -69,6 +97,28 @@ describe("resolveBanks — agent-aware project bank routing", () => {
         },
       );
       expect(result.project).toBe("agent-code-small-bank");
+    });
+
+    it("reports projectSource 'agentProjectBanks', agent, and agentPattern for exact match", () => {
+      const result = resolveBanks(
+        {
+          directory: "/home/user/projects/my-app",
+          agent: "code-small",
+        },
+        {
+          ...baseOptions,
+          config: {
+            ...baseOptions.config,
+            agentProjectBanks: {
+              "code-small": "agent-code-small-bank",
+            },
+          },
+        },
+      );
+      expect(result.projectSource).toBe("agentProjectBanks");
+      expect(result.agent).toBe("code-small");
+      expect(result.agentPattern).toBe("code-small");
+      expect(result.projectBankAlias).toBeUndefined();
     });
   });
 
@@ -109,6 +159,28 @@ describe("resolveBanks — agent-aware project bank routing", () => {
         },
       );
       expect(result.project).toBe("medium-shared-bank");
+    });
+
+    it("reports projectSource 'agentProjectBanks', agent, and glob agentPattern", () => {
+      const result = resolveBanks(
+        {
+          directory: "/home/user/projects/my-app",
+          agent: "review-final-gpt",
+        },
+        {
+          ...baseOptions,
+          config: {
+            ...baseOptions.config,
+            agentProjectBanks: {
+              "review-*": "review-shared-bank",
+            },
+          },
+        },
+      );
+      expect(result.projectSource).toBe("agentProjectBanks");
+      expect(result.agent).toBe("review-final-gpt");
+      expect(result.agentPattern).toBe("review-*");
+      expect(result.projectBankAlias).toBeUndefined();
     });
   });
 
@@ -156,6 +228,32 @@ describe("resolveBanks — agent-aware project bank routing", () => {
         },
       );
       expect(result.project).toBe("runtime-override-bank");
+    });
+
+    it("reports projectSource 'env:HINDSIGHT_PROJECT_BANK_ID' with no agent metadata", () => {
+      const result = resolveBanks(
+        {
+          directory: "/home/user/projects/my-app",
+          agent: "code-small",
+        },
+        {
+          ...baseOptions,
+          config: {
+            ...baseOptions.config,
+            projectBank: "config-bank",
+            agentProjectBanks: {
+              "code-small": "agent-bank",
+            },
+          },
+          env: {
+            HINDSIGHT_PROJECT_BANK_ID: "runtime-override-bank",
+          },
+        },
+      );
+      expect(result.projectSource).toBe("env:HINDSIGHT_PROJECT_BANK_ID");
+      expect(result.agent).toBeUndefined();
+      expect(result.agentPattern).toBeUndefined();
+      expect(result.projectBankAlias).toBeUndefined();
     });
   });
 
@@ -268,6 +366,28 @@ describe("resolveBanks — agent-aware project bank routing", () => {
         },
       );
       expect(result.project).toBe("resolved-bank-from-alias");
+    });
+
+    it("reports projectSource 'runtimeProjectBanks' and projectBankAlias for alias match", () => {
+      const result = resolveBanks(
+        {
+          directory: "/home/user/projects/my-app",
+          projectBankAlias: "my-alias",
+        },
+        {
+          ...baseOptions,
+          config: {
+            ...baseOptions.config,
+            runtimeProjectBanks: {
+              "my-alias": "resolved-bank-from-alias",
+            },
+          },
+        },
+      );
+      expect(result.projectSource).toBe("runtimeProjectBanks");
+      expect(result.projectBankAlias).toBe("my-alias");
+      expect(result.agent).toBeUndefined();
+      expect(result.agentPattern).toBeUndefined();
     });
 
     it("projectBankAlias loses to env vars but beats agent banks", () => {

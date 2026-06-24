@@ -101,10 +101,30 @@ export interface ResolveBanksOptions {
   env?: Record<string, string | undefined>;
 }
 
+/**
+ * Identifies which source resolved the project bank. Values mirror the
+ * resolution precedence chain so routing logs are unambiguous.
+ */
+export type ProjectBankSource =
+  | "env:HINDSIGHT_PROJECT_BANK_ID"
+  | "env:HINDSIGHT_BANK_ID"
+  | "runtimeProjectBanks"
+  | "agentProjectBanks"
+  | "config:projectBank"
+  | "generated";
+
 /** Result of resolving banks for a single call. */
 export interface ResolvedBanks {
   user: string;
   project: string;
+  /** Which source produced `project`. */
+  projectSource: ProjectBankSource;
+  /** Agent name that matched `agentProjectBanks` (exact or glob). */
+  agent?: string;
+  /** Runtime alias name resolved through `runtimeProjectBanks`. */
+  projectBankAlias?: string;
+  /** Pattern key in `agentProjectBanks` that matched `agent` (exact name or glob). */
+  agentPattern?: string;
 }
 
 /**
@@ -125,17 +145,21 @@ function globToRegexSource(pattern: string): string {
 
 /**
  * Match an agent name against a set of bank patterns, preferring exact matches
- * over glob matches. Returns the matched bank id or `undefined`.
+ * over glob matches. Returns the matched bank id and the pattern key that
+ * produced it, or `undefined` when nothing matches.
  */
 function matchAgentBank(
   agent: string | undefined,
   agentBanks: Record<string, string>,
-): string | undefined {
+): { bank: string; pattern: string } | undefined {
   if (!agent || !agentBanks) return undefined;
 
   // 1. Exact match wins.
   if (Object.prototype.hasOwnProperty.call(agentBanks, agent)) {
-    return agentBanks[agent];
+    const bank = agentBanks[agent];
+    if (bank !== undefined) {
+      return { bank, pattern: agent };
+    }
   }
 
   // 2. Glob match (`*` is the only wildcard). First matching pattern wins,
@@ -145,7 +169,7 @@ function matchAgentBank(
     if (!pattern.includes("*")) continue;
     const re = new RegExp(globToRegexSource(pattern));
     if (re.test(agent)) {
-      return bank;
+      return { bank, pattern };
     }
   }
 
@@ -180,15 +204,21 @@ export function resolveBanks(
   const cfgProjectBank = options.config?.projectBank ?? CONFIG.projectBank;
 
   let project: string | undefined;
+  let projectSource: ProjectBankSource | undefined;
+  let matchedAgent: string | undefined;
+  let matchedAlias: string | undefined;
+  let matchedAgentPattern: string | undefined;
 
   // 1. HINDSIGHT_PROJECT_BANK_ID
-  if (env.HINDSIGHT_PROJECT_BANK_ID) {
+  if (project === undefined && env.HINDSIGHT_PROJECT_BANK_ID) {
     project = env.HINDSIGHT_PROJECT_BANK_ID;
+    projectSource = "env:HINDSIGHT_PROJECT_BANK_ID";
   }
 
   // 2. HINDSIGHT_BANK_ID (legacy)
   if (project === undefined && env.HINDSIGHT_BANK_ID) {
     project = env.HINDSIGHT_BANK_ID;
+    projectSource = "env:HINDSIGHT_BANK_ID";
   }
 
   // 3. Runtime project bank alias
@@ -199,28 +229,39 @@ export function resolveBanks(
       throw new Error(`Unknown runtime project bank alias: ${alias}`);
     }
     project = resolved;
+    projectSource = "runtimeProjectBanks";
+    matchedAlias = alias;
   }
 
   // 4. Agent exact/glob match
   if (project === undefined) {
     const agentMatch = matchAgentBank(input.agent, cfgAgentBanks);
     if (agentMatch !== undefined) {
-      project = agentMatch;
+      project = agentMatch.bank;
+      projectSource = "agentProjectBanks";
+      matchedAgent = input.agent;
+      matchedAgentPattern = agentMatch.pattern;
     }
   }
 
   // 5. CONFIG.projectBank / explicit projectBank fallback
   if (project === undefined && cfgProjectBank) {
     project = cfgProjectBank;
+    projectSource = "config:projectBank";
   }
 
   // 6. Generated fallback
   if (project === undefined) {
     project = generatedProjectBank(input.directory);
+    projectSource = "generated";
   }
 
   return {
     user: getUserBank(),
     project,
+    projectSource: projectSource!,
+    agent: matchedAgent,
+    projectBankAlias: matchedAlias,
+    agentPattern: matchedAgentPattern,
   };
 }
