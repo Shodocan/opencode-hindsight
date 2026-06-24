@@ -23,6 +23,8 @@ interface HindsightConfig {
   budget?: 'low' | 'mid' | 'high';
   keywordPatterns?: string[];
   compactionThreshold?: number;
+  agentProjectBanks?: Record<string, string>;
+  runtimeProjectBanks?: Record<string, string>;
 }
 
 const DEFAULT_KEYWORD_PATTERNS = [
@@ -51,7 +53,7 @@ const DEFAULT_KEYWORD_PATTERNS = [
   "存下来",
 ];
 
-const DEFAULTS: Required<Omit<HindsightConfig, "userBank" | "projectBank" | "baseUrl">> = {
+const DEFAULTS: Required<Omit<HindsightConfig, "userBank" | "projectBank" | "baseUrl" | "agentProjectBanks" | "runtimeProjectBanks">> = {
   similarityThreshold: 0.6,
   maxMemories: 5,
   maxProjectMemories: 20,
@@ -105,6 +107,21 @@ function getBaseUrl(): string {
   return 'http://localhost:8888';
 }
 
+/**
+ * Sanitize a bank-name map from config: drop entries with non-string keys/values
+ * and strip leading/trailing whitespace. Returns an empty object when absent.
+ */
+function sanitizeBankMap(map: Record<string, string> | undefined): Record<string, string> {
+  if (!map || typeof map !== 'object') return {};
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(map)) {
+    if (typeof key === 'string' && typeof value === 'string' && key.trim() && value.trim()) {
+      out[key.trim()] = value.trim();
+    }
+  }
+  return out;
+}
+
 export const CONFIG = {
   baseUrl: getBaseUrl(),
   similarityThreshold: fileConfig.similarityThreshold ?? DEFAULTS.similarityThreshold,
@@ -122,6 +139,8 @@ export const CONFIG = {
     ...(fileConfig.keywordPatterns ?? []).filter(isValidRegex),
   ],
   compactionThreshold: validateCompactionThreshold(fileConfig.compactionThreshold),
+  agentProjectBanks: sanitizeBankMap(fileConfig.agentProjectBanks),
+  runtimeProjectBanks: sanitizeBankMap(fileConfig.runtimeProjectBanks),
 };
 
 export function isConfigured(): boolean {
