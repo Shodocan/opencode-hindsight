@@ -1,10 +1,10 @@
 import type { Plugin, PluginInput } from "@opencode-ai/plugin";
 import type { Part } from "@opencode-ai/sdk";
-import { tool } from "@opencode-ai/plugin";
+import { tool, type ToolContext } from "@opencode-ai/plugin";
 
 import { hindsightClient } from "./services/client.js";
 import { formatContextForPrompt } from "./services/context.js";
-import { getBanks } from "./services/tags.js";
+import { resolveBanks, type ResolvedBanks } from "./services/tags.js";
 import { stripPrivateContent, isFullyPrivate } from "./services/privacy.js";
 import { createCompactionHook, type CompactionContext } from "./services/compaction.js";
 
@@ -69,11 +69,52 @@ function detectMemoryKeyword(text: string): boolean {
   return MEMORY_KEYWORD_PATTERN.test(textWithoutCode);
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function extractAgentName(...sources: unknown[]): string | undefined {
+  for (const source of sources) {
+    const record = asRecord(source);
+    if (!record) continue;
+
+    const info = asRecord(record.info);
+    const message = asRecord(record.message);
+    const context = asRecord(record.context);
+
+    const agent = firstString(
+      record.agent,
+      record.agentName,
+      info?.agent,
+      info?.agentName,
+      message?.agent,
+      message?.agentName,
+      context?.agent,
+      context?.agentName
+    );
+
+    if (agent) return agent;
+  }
+  return undefined;
+}
+
 export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
   const { directory } = ctx;
-  const banks = getBanks(directory);
+  const defaultBanks = resolveBanks({ directory });
   const injectedSessions = new Set<string>();
-  log("Plugin init", { directory, banks, configured: isConfigured() });
+  log("Plugin init", {
+    directory,
+    defaultBank: defaultBanks.project,
+    projectBankSource: defaultBanks.projectSource,
+    configured: isConfigured(),
+  });
 
   if (!isConfigured()) {
     log("Plugin disabled - Hindsight baseUrl not configured");
@@ -107,7 +148,7 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
   };
 
   const compactionHook = isConfigured() && ctx.client
-    ? createCompactionHook(ctx as CompactionContext, banks, {
+    ? createCompactionHook(ctx as CompactionContext, defaultBanks, {
         threshold: CONFIG.compactionThreshold,
         getModelLimit,
       })
@@ -118,6 +159,14 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
       if (!isConfigured()) return;
 
       const start = Date.now();
+
+      const agent = extractAgentName(input, output, output?.message);
+      const banks = resolveBanks({ directory, agent });
+      log("chat.message: routing", {
+        agent: agent ?? "none",
+        projectBankSource: banks.projectSource,
+        agentPattern: banks.agentPattern ?? "none",
+      });
 
       try {
         const textParts = output.parts.filter(
@@ -235,16 +284,21 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
           scope: tool.schema.enum(["user", "project"]).optional(),
           memoryId: tool.schema.string().optional(),
           limit: tool.schema.number().optional(),
+          bankAlias: tool.schema.string().optional(),
         },
-        async execute(args: {
-          mode?: string;
-          content?: string;
-          query?: string;
-          type?: MemoryType;
-          scope?: MemoryScope;
-          memoryId?: string;
-          limit?: number;
-        }) {
+        async execute(
+          args: {
+            mode?: string;
+            content?: string;
+            query?: string;
+            type?: MemoryType;
+            scope?: MemoryScope;
+            memoryId?: string;
+            limit?: number;
+            bankAlias?: string;
+          },
+          context?: ToolContext
+        ) {
           const mode = args.mode || "help";
           log("tool.execute: start", { mode, baseUrl: CONFIG.baseUrl, configured: isConfigured(), args: { ...args } });
 
@@ -255,6 +309,32 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
                 "Hindsight baseUrl not configured. Set baseUrl in config or environment to use Hindsight.",
             });
           }
+
+          if (args.bankAlias && args.scope === "user") {
+            return JSON.stringify({
+              success: false,
+              error: "bankAlias is not supported for user-scoped operations",
+            });
+          }
+
+          const agent = extractAgentName(context, args);
+          let banks: ResolvedBanks;
+          try {
+            banks = resolveBanks({ directory, agent, projectBankAlias: args.bankAlias });
+          } catch (err) {
+            return JSON.stringify({
+              success: false,
+              error: `Bank resolution failed: ${err instanceof Error ? err.message : String(err)}`,
+            });
+          }
+
+          log("tool.execute: routing", {
+            mode,
+            agent: agent ?? "none",
+            bankAlias: args.bankAlias,
+            projectBankSource: banks.projectSource,
+            agentPattern: banks.agentPattern ?? "none",
+          });
 
           try {
             switch (mode) {
@@ -271,6 +351,7 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
                   ],
                   scopes: { user: "Cross-project preferences and knowledge", project: "Project-specific knowledge (default)" },
                   types: ["project-config", "architecture", "error-solution", "preference", "learned-pattern", "conversation"],
+                  bankAliases: Object.keys(CONFIG.runtimeProjectBanks),
                 });
               }
 
