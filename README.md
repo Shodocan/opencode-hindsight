@@ -568,7 +568,7 @@ hindsight(mode: "search", query: "auth flow", bankAlias: "other-repo")
 
 ### API Compatibility
 
-This plugin uses the official `@vectorize-io/hindsight-client` (v0.5.3) and is compatible with Hindsight API v1. Key compatibility notes:
+This plugin uses the official `@vectorize-io/hindsight-client` (v0.6.2) and is compatible with Hindsight API v1. Key compatibility notes:
 
 - **Asynchronous operations**: Memory addition uses `async: true` by default to prevent timeouts
 - **Metadata handling**: All metadata values are converted to strings to match API requirements

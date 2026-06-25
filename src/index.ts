@@ -108,7 +108,7 @@ export function extractAgentName(...sources: unknown[]): string | undefined {
 export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
   const { directory } = ctx;
   const defaultBanks = resolveBanks({ directory });
-  const injectedSessions = new Set<string>();
+  const injectedKeys = new Set<string>();
   log("Plugin init", {
     directory,
     defaultBank: defaultBanks.project,
@@ -208,10 +208,11 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
           output.parts.push(nudgePart);
         }
 
-        const isFirstMessage = !injectedSessions.has(input.sessionID);
+        const injectionKey = `${input.sessionID}::${banks.project}`;
+        const isFirstMessage = !injectedKeys.has(injectionKey);
 
         if (isFirstMessage) {
-          injectedSessions.add(input.sessionID);
+          injectedKeys.add(injectionKey);
 
           const [profileResult, userMemoriesResult, projectMemoriesListResult] = await Promise.all([
             hindsightClient.getProfile(banks.user, userMessage),
@@ -316,7 +317,7 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
             queryLength: typeof args.query === "string" ? args.query.length : 0,
             hasMemoryId: typeof args.memoryId === "string" && args.memoryId.length > 0,
             limit: args.limit,
-            bankAlias: args.bankAlias,
+            hasBankAlias: !!args.bankAlias,
           });
 
           if (!isConfigured()) {
@@ -331,6 +332,13 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
             return JSON.stringify({
               success: false,
               error: "bankAlias is not supported for user-scoped operations",
+            });
+          }
+
+          if (args.bankAlias && (mode === "help" || mode === "profile")) {
+            return JSON.stringify({
+              success: false,
+              error: "bankAlias is not supported for help and user-profile operations",
             });
           }
 
@@ -349,7 +357,7 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
           log("tool.execute: routing", {
             mode,
             agent: agent ?? "none",
-            bankAlias: args.bankAlias,
+            hasBankAlias: !!args.bankAlias,
             projectBankSource: banks.projectSource,
             agentPattern: banks.agentPattern ?? "none",
           });

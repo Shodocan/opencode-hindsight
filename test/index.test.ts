@@ -3,9 +3,13 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 const hindsightCalls: {
   listMemories: Array<{ bank: string; limit?: number }>;
   addMemory: Array<{ content: string; bank: string; metadata: unknown }>;
+  getProfile: Array<{ bank: string; query: string }>;
+  searchMemories: Array<{ bank: string; query: string }>;
 } = {
   listMemories: [],
   addMemory: [],
+  getProfile: [],
+  searchMemories: [],
 };
 
 const logCalls: Array<{ message: string; data: unknown }> = [];
@@ -20,8 +24,14 @@ mock.module("../src/services/client.js", () => ({
       hindsightCalls.addMemory.push({ content, bank, metadata });
       return { success: true };
     },
-    getProfile: async () => ({ success: true, results: [] }),
-    searchMemories: async () => ({ success: true, results: [] }),
+    getProfile: async (bank: string, query: string) => {
+      hindsightCalls.getProfile.push({ bank, query });
+      return { success: true, results: [] };
+    },
+    searchMemories: async (query: string, bank: string) => {
+      hindsightCalls.searchMemories.push({ bank, query });
+      return { success: true, results: [] };
+    },
   },
 }));
 
@@ -34,10 +44,13 @@ mock.module("../src/services/logger.js", () => ({
 const { HindsightPlugin, extractAgentName } = await import("../src/index");
 const { createCompactionHook } = await import("../src/services/compaction");
 const { resolveBanks } = await import("../src/services/tags");
+const { CONFIG } = await import("../src/config");
 
 beforeEach(() => {
   hindsightCalls.listMemories = [];
   hindsightCalls.addMemory = [];
+  hindsightCalls.getProfile = [];
+  hindsightCalls.searchMemories = [];
   logCalls.length = 0;
 });
 
@@ -114,6 +127,20 @@ describe("hindsight tool bankAlias routing errors", () => {
     }
   });
 
+  test("rejects bankAlias for help and user-profile operations", async () => {
+    const plugin = await HindsightPlugin(pluginContext() as any);
+
+    for (const mode of ["help", "profile"]) {
+      const result = await plugin.tool.hindsight.execute(
+        { mode, bankAlias: "other-repo" },
+        { agent: "review-security", directory: "/tmp/opencode-hindsight-test" } as any
+      );
+      const parsed = JSON.parse(String(result));
+      expect(parsed.success).toBe(false);
+      expect(parsed.error).toContain("bankAlias is not supported");
+    }
+  });
+
   test("uses ToolContext.directory for generated project bank routing", async () => {
     const previousProjectBank = process.env.HINDSIGHT_PROJECT_BANK_ID;
     const previousBank = process.env.HINDSIGHT_BANK_ID;
@@ -182,6 +209,11 @@ describe("hindsight tool bankAlias routing errors", () => {
       { agent: "review-security", directory: "/tmp/opencode-hindsight-test" } as any
     );
 
+    await plugin.tool.hindsight.execute(
+      { mode: "list", scope: "project", bankAlias: `${sentinel}-alias` },
+      { agent: "review-security", directory: "/tmp/opencode-hindsight-test" } as any
+    );
+
     await plugin["chat.message"](
       { sessionID: "session-log-test", agent: "review-security" } as any,
       {
@@ -197,6 +229,46 @@ describe("hindsight tool bankAlias routing errors", () => {
     );
 
     expect(JSON.stringify(logCalls)).not.toContain(sentinel);
+  });
+
+  test("injects memories once per session and resolved project bank", async () => {
+    const previousAgentProjectBanks = CONFIG.agentProjectBanks;
+    const plugin = await HindsightPlugin(pluginContext() as any);
+    const sessionID = "session-agent-switch";
+    CONFIG.agentProjectBanks = {
+      "agent-a": "agent-a-project-bank",
+      "agent-b": "agent-b-project-bank",
+    };
+
+    const makeOutput = (id: string, text: string) => ({
+      message: { id },
+      parts: [
+        {
+          id: `${id}-part`,
+          sessionID,
+          messageID: id,
+          type: "text",
+          text,
+        },
+      ],
+    });
+
+    try {
+      await plugin["chat.message"](
+        { sessionID, agent: "agent-a" } as any,
+        makeOutput("message-a", "first message") as any,
+      );
+
+      await plugin["chat.message"](
+        { sessionID, agent: "agent-b" } as any,
+        makeOutput("message-b", "second message") as any,
+      );
+
+      const projectBanks = hindsightCalls.listMemories.map((call) => call.bank);
+      expect(projectBanks).toEqual(["agent-a-project-bank", "agent-b-project-bank"]);
+    } finally {
+      CONFIG.agentProjectBanks = previousAgentProjectBanks;
+    }
   });
 });
 

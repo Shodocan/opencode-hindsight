@@ -1,4 +1,5 @@
 import { describe, it, expect } from "bun:test";
+import { CONFIG } from "../../src/config";
 import { getBanks, resolveBanks } from "../../src/services/tags";
 
 /**
@@ -320,6 +321,32 @@ describe("resolveBanks — agent-aware project bank routing", () => {
         ).toThrow(new RegExp(`Unknown runtime project bank alias: ${projectBankAlias}`));
       }
     });
+
+    it("ignores empty and whitespace agent bank mappings", () => {
+      for (const agentProjectBanks of [
+        { "agent-a": "" },
+        { "agent-a": "   " },
+        { "review-*": "" },
+        { "review-*": "   " },
+      ]) {
+        const result = resolveBanks(
+          {
+            directory: "/home/user/projects/my-app",
+            agent: agentProjectBanks["agent-a" as keyof typeof agentProjectBanks] !== undefined ? "agent-a" : "review-security",
+          },
+          {
+            ...baseOptions,
+            config: {
+              ...baseOptions.config,
+              projectBank: "fallback-bank",
+              agentProjectBanks,
+            },
+          },
+        );
+        expect(result.project).toBe("fallback-bank");
+        expect(result.projectSource).toBe("config:projectBank");
+      }
+    });
   });
 
   describe("legacy getBanks wrapper", () => {
@@ -364,6 +391,37 @@ describe("resolveBanks — agent-aware project bank routing", () => {
 
         if (previousBank === undefined) delete process.env.HINDSIGHT_BANK_ID;
         else process.env.HINDSIGHT_BANK_ID = previousBank;
+      }
+    });
+  });
+
+  describe("explicit resolver config isolation", () => {
+    it("does not fall back to global config fields when a partial config snapshot is provided", () => {
+      const previousAgentProjectBanks = CONFIG.agentProjectBanks;
+
+      try {
+        CONFIG.agentProjectBanks = {
+          "code-small": "global-agent-bank",
+        };
+
+        const result = resolveBanks(
+          {
+            directory: "/home/user/projects/my-app",
+            agent: "code-small",
+          },
+          {
+            config: {
+              projectBank: "explicit-fallback-bank",
+            },
+            env: {},
+          },
+        );
+
+        expect(result.project).toBe("explicit-fallback-bank");
+        expect(result.projectSource).toBe("config:projectBank");
+        expect(result.agentPattern).toBeUndefined();
+      } finally {
+        CONFIG.agentProjectBanks = previousAgentProjectBanks;
       }
     });
   });

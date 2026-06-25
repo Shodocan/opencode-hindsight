@@ -108,11 +108,12 @@ function getBaseUrl(): string {
 }
 
 /**
- * Sanitize a bank-name map from config: drop entries with non-string keys/values
- * and strip leading/trailing whitespace. Returns an empty object when absent.
+ * Sanitize a bank-name map from config: reject arrays, drop entries with
+ * non-string keys/values, and strip leading/trailing whitespace. Returns an
+ * empty object when absent or not a plain object.
  */
-function sanitizeBankMap(map: Record<string, string> | undefined): Record<string, string> {
-  if (!map || typeof map !== 'object') return {};
+export function sanitizeBankMap(map: Record<string, string> | undefined): Record<string, string> {
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return {};
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(map)) {
     if (typeof key === 'string' && typeof value === 'string' && key.trim() && value.trim()) {

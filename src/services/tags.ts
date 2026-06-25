@@ -155,8 +155,8 @@ function matchAgentBank(
   // 1. Exact match wins.
   if (Object.prototype.hasOwnProperty.call(agentBanks, agent)) {
     const bank = agentBanks[agent];
-    if (bank !== undefined) {
-      return { bank, pattern: agent };
+    if (typeof bank === "string" && bank.trim()) {
+      return { bank: bank.trim(), pattern: agent };
     }
   }
 
@@ -165,9 +165,10 @@ function matchAgentBank(
   //    exact match exists.
   for (const [pattern, bank] of Object.entries(agentBanks)) {
     if (!pattern.includes("*")) continue;
+    if (typeof bank !== "string" || !bank.trim()) continue;
     const re = new RegExp(globToRegexSource(pattern));
     if (re.test(agent)) {
-      return { bank, pattern };
+      return { bank: bank.trim(), pattern };
     }
   }
 
@@ -197,9 +198,10 @@ export function resolveBanks(
   options: ResolveBanksOptions = {},
 ): ResolvedBanks {
   const env = options.env ?? process.env;
-  const cfgAgentBanks = options.config?.agentProjectBanks ?? CONFIG.agentProjectBanks;
-  const cfgRuntimeBanks = options.config?.runtimeProjectBanks ?? CONFIG.runtimeProjectBanks;
-  const cfgProjectBank = options.config?.projectBank ?? CONFIG.projectBank;
+  const useExplicitConfig = options.config !== undefined;
+  const cfgAgentBanks = useExplicitConfig ? (options.config!.agentProjectBanks ?? {}) : CONFIG.agentProjectBanks;
+  const cfgRuntimeBanks = useExplicitConfig ? (options.config!.runtimeProjectBanks ?? {}) : CONFIG.runtimeProjectBanks;
+  const cfgProjectBank = useExplicitConfig ? options.config!.projectBank : CONFIG.projectBank;
 
   let project: string | undefined;
   let projectSource: ProjectBankSource | undefined;
