@@ -1,13 +1,15 @@
-# opencode-hindsight
+# @shodocan/opencode-hindsight
 
-**OpenCode implementation of Hindsight plugin** — Provides persistent memory for OpenCode AI assistants across sessions and projects.
+**Shodocan OpenCode Hindsight plugin** — Agent-aware persistent memory for OpenCode AI assistants across sessions and projects.
+
+This is the Shodocan OpenCode plugin/integration package, not vanilla Vectorize Hindsight. The Vectorize Hindsight server remains the separate semantic-memory backend.
 
 ## Project Overview
 
-opencode-hindsight is an OpenCode plugin that gives AI coding agents persistent, semantic memory using [Hindsight](https://github.com/vectorize-io/hindsight) as the backend. It stores memories across sessions and projects, auto-detects when to save, injects relevant context on first message, and handles context compaction.
+`@shodocan/opencode-hindsight` is an OpenCode plugin that gives AI coding agents persistent, semantic memory using [Hindsight](https://github.com/vectorize-io/hindsight) as the backend. It stores memories across sessions and projects, auto-detects when to save, injects relevant context on first message, and handles context compaction. Shodocan-specific changes include agent-aware bank routing, runtime bank aliases, trusted OpenCode tool-context routing, compaction memory routing, and privacy-safe logging.
 
 ### Repository
-- GitHub: https://github.com/opencode-community/opencode-hindsight
+- GitHub: https://github.com/Shodocan/opencode-hindsight
 - Gitee: https://gitee.com/zwidny/opencode-hindsight
 
 ## Quick Start
@@ -33,7 +35,14 @@ Verify: `curl http://localhost:8888/health` → `{"status":"healthy","database":
 ### 2. Install the Plugin
 
 ```bash
-git clone https://github.com/opencode-community/opencode-hindsight.git
+npm install -g @shodocan/opencode-hindsight
+echo '{"plugin": ["@shodocan/opencode-hindsight"]}' > ~/.config/opencode/opencode.json
+```
+
+For local source development, use:
+
+```bash
+git clone https://github.com/Shodocan/opencode-hindsight.git
 cd opencode-hindsight
 bun install
 bun run build
@@ -58,7 +67,7 @@ Default: connects to `localhost:8888`. Override via:
 | `src/services/client.ts` | Hindsight API client wrapper (search, add, delete, list, profile, ingest) |
 | `src/services/context.ts` | Formats memories into prompt context blocks |
 | `src/services/compaction.ts` | Context window compaction and session summarization |
-| `src/services/tags.ts` | Auto-generates bank names using SHA-256 hashes |
+| `src/services/tags.ts` | Resolves project/user banks, runtime aliases, agent mappings, and generated bank names |
 | `src/services/privacy.ts` | Strips `<private>...</private>` content from memories |
 | `src/services/jsonc.ts` | Strips JSONC comments for config parsing |
 | `src/services/logger.ts` | File-based logging to `~/.opencode-hindsight.log` |
@@ -72,7 +81,7 @@ Default: connects to `localhost:8888`. Override via:
 | Package | Version | Purpose |
 |---|---|---|
 | `@opencode-ai/plugin` | ^1.0.162 | OpenCode plugin SDK |
-| `@vectorize-io/hindsight-client` | ^0.5.3 | Hindsight REST API client |
+| `@vectorize-io/hindsight-client` | 0.6.2 | Hindsight REST API client |
 
 ## Scripts
 

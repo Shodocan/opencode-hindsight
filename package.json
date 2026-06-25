@@ -1,32 +1,45 @@
 {
-  "name": "opencode-hindsight",
+  "name": "@shodocan/opencode-hindsight",
   "version": "1.0.0",
   "description": "OpenCode plugin that gives coding agents persistent memory using Hindsight",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "opencode-hindsight": "./dist/cli.js"
+    "opencode-hindsight": "dist/cli.js"
   },
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./dist --target node && bun build ./src/cli.ts --outfile ./dist/cli.js --target node && tsc --emitDeclarationOnly",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "prepack": "bun run build"
   },
   "keywords": [
     "opencode",
-    "plugin",
+    "opencode-plugin",
     "hindsight",
-    "memory",
-    "ai",
-    "coding-agent"
+    "hindsight-memory",
+    "persistent-memory",
+    "ai-agent",
+    "coding-agent",
+    "agent-memory",
+    "context-injection",
+    "vectorize"
   ],
-  "author": "OpenCode Community",
+  "author": "Shodocan",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/opencode-community/opencode-hindsight"
+    "url": "git+https://github.com/Shodocan/opencode-hindsight.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Shodocan/opencode-hindsight/issues"
+  },
+  "homepage": "https://github.com/Shodocan/opencode-hindsight#readme",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
   },
   "dependencies": {
     "@opencode-ai/plugin": "^1.0.162",
@@ -44,6 +57,8 @@
     ]
   },
   "files": [
-    "dist"
+    "dist",
+    "deploy",
+    "README.md"
   ]
 }

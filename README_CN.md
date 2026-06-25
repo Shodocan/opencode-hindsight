@@ -1,6 +1,10 @@
-# opencode-hindsight
+# @shodocan/opencode-hindsight
 
-**OpenCode 实现的 Hindsight 插件** - 为 OpenCode AI 助手提供跨会话、跨项目的持久记忆功能。
+**Shodocan OpenCode Hindsight 插件** - 为 OpenCode AI 助手提供跨会话、跨项目的持久记忆功能。
+
+> 这是 Shodocan 发布的 OpenCode 插件/集成包，不是原版 Vectorize Hindsight。Vectorize Hindsight 服务器仍然是需要单独部署的语义记忆后端；本包负责把 OpenCode agent 连接到 Hindsight 记忆。
+
+Shodocan 版本增加了 agent 感知的项目 bank 路由、运行时 bank alias、可信 OpenCode tool context 路由、compaction 记忆路由、隐私安全日志，以及国内/离线部署说明。
 
 您的 AI 助手会记住您告诉它的一切 - 跨越会话，跨越项目。
 
@@ -83,26 +87,27 @@ curl http://localhost:8888/health
 
 ### 2. 安装插件
 
+**通过 npm 安装（推荐）：**
+
 ```bash
-# 克隆 opencode-hindsight 仓库
-git clone https://github.com/opencode-community/opencode-hindsight.git
+npm install -g @shodocan/opencode-hindsight
+echo '{"plugin": ["@shodocan/opencode-hindsight"]}' > ~/.config/opencode/opencode.json
+```
+
+**从源码本地开发：**
+
+```bash
+git clone https://github.com/Shodocan/opencode-hindsight.git
 cd opencode-hindsight
-
-# 安装依赖
 bun install
-
-# 构建插件
 bun run build
-
-# 将插件链接到 OpenCode 配置
 echo '{"plugin": ["file://'$(pwd)'"]}' > ~/.config/opencode/opencode.json
 ```
 
 这将：
-- 克隆插件源代码
-- 安装所有必需的依赖项
-- 在本地构建插件
-- 在您的 OpenCode 配置中注册插件
+- 安装 npm 包或克隆插件源代码
+- 必要时安装依赖并在本地构建插件
+- 在您的 OpenCode 配置中注册插件（npm 包名或 `file://` 本地路径）
 - 创建用于代码库索引的 `/hindsight-init` 命令
 
 **注意**：重启 OpenCode 以使更改生效。
@@ -133,10 +138,9 @@ opencode -c  # 应在可用工具中显示 'hindsight'
 ```
 
 **测试插件：**
-```bash
-# 尝试添加测试记忆
-hindsight add content="测试记忆" type="preference" scope="project"
-```
+重启 OpenCode 后，请让 agent 保存一条测试记忆；如果您的 OpenCode UI 支持直接调用工具，也可以使用会话内的 `hindsight` 工具。`hindsight` 是 OpenCode agent 工具，不是 `opencode-hindsight` 终端命令。
+
+高级 bank 路由配置（`agentProjectBanks`、`runtimeProjectBanks`、`bankAlias`、优先级链）请参考英文 README 的 “Agent-Aware Project Banks” 和 “Runtime Bank Aliases” 部分。
 
 ## 功能特性
 
