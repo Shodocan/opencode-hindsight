@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { resolveBanks } from "../../src/services/tags";
+import { getBanks, resolveBanks } from "../../src/services/tags";
 
 /**
  * Agent-aware Hindsight project bank routing tests.
@@ -276,6 +276,95 @@ describe("resolveBanks — agent-aware project bank routing", () => {
           },
         ),
       ).toThrow(/Unknown runtime project bank alias/);
+    });
+
+    it("throws for unknown aliases before applying env project bank overrides", () => {
+      expect(() =>
+        resolveBanks(
+          {
+            directory: "/home/user/projects/my-app",
+            projectBankAlias: "unknown-alias",
+          },
+          {
+            ...baseOptions,
+            config: {
+              ...baseOptions.config,
+              runtimeProjectBanks: {
+                "known-alias": "known-bank",
+              },
+            },
+            env: {
+              HINDSIGHT_PROJECT_BANK_ID: "env-bank",
+            },
+          },
+        ),
+      ).toThrow(/Unknown runtime project bank alias: unknown-alias/);
+    });
+
+    it("rejects Object prototype property names as runtime aliases", () => {
+      for (const projectBankAlias of ["toString", "constructor", "__proto__"]) {
+        expect(() =>
+          resolveBanks(
+            {
+              directory: "/home/user/projects/my-app",
+              projectBankAlias,
+            },
+            {
+              ...baseOptions,
+              config: {
+                ...baseOptions.config,
+                runtimeProjectBanks: {},
+              },
+            },
+          ),
+        ).toThrow(new RegExp(`Unknown runtime project bank alias: ${projectBankAlias}`));
+      }
+    });
+  });
+
+  describe("legacy getBanks wrapper", () => {
+    it("matches resolveBanks generated fallback when env vars are unset", () => {
+      const previousProjectBank = process.env.HINDSIGHT_PROJECT_BANK_ID;
+      const previousBank = process.env.HINDSIGHT_BANK_ID;
+
+      try {
+        delete process.env.HINDSIGHT_PROJECT_BANK_ID;
+        delete process.env.HINDSIGHT_BANK_ID;
+
+        const directory = "/home/user/projects/my-app";
+        expect(getBanks(directory)).toEqual({
+          user: resolveBanks({ directory }).user,
+          project: resolveBanks({ directory }).project,
+        });
+      } finally {
+        if (previousProjectBank === undefined) delete process.env.HINDSIGHT_PROJECT_BANK_ID;
+        else process.env.HINDSIGHT_PROJECT_BANK_ID = previousProjectBank;
+
+        if (previousBank === undefined) delete process.env.HINDSIGHT_BANK_ID;
+        else process.env.HINDSIGHT_BANK_ID = previousBank;
+      }
+    });
+
+    it("matches resolveBanks project selection under env precedence", () => {
+      const previousProjectBank = process.env.HINDSIGHT_PROJECT_BANK_ID;
+      const previousBank = process.env.HINDSIGHT_BANK_ID;
+
+      try {
+        process.env.HINDSIGHT_PROJECT_BANK_ID = "env-bank";
+        delete process.env.HINDSIGHT_BANK_ID;
+
+        const directory = "/home/user/projects/my-app";
+        expect(getBanks(directory)).toEqual({
+          user: resolveBanks({ directory }).user,
+          project: resolveBanks({ directory }).project,
+        });
+      } finally {
+        if (previousProjectBank === undefined) delete process.env.HINDSIGHT_PROJECT_BANK_ID;
+        else process.env.HINDSIGHT_PROJECT_BANK_ID = previousProjectBank;
+
+        if (previousBank === undefined) delete process.env.HINDSIGHT_BANK_ID;
+        else process.env.HINDSIGHT_BANK_ID = previousBank;
+      }
     });
   });
 

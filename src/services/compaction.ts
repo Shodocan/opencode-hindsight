@@ -74,6 +74,13 @@ This context is critical for maintaining continuity after compaction.
 `;
 }
 
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
 export function createCompactionHook(
   ctx: CompactionContext,
   resolveBanksForCompaction: CompactionBankResolver,
@@ -98,7 +105,11 @@ export function createCompactionHook(
     }
   }
 
-  async function handleSummary(sessionID: string, fallbackAgent?: string | null): Promise<void> {
+  async function handleSummary(
+    sessionID: string,
+    fallbackAgent?: string | null,
+    summaryMessageID?: string,
+  ): Promise<void> {
     try {
       const resp = await ctx.client.session.messages({
         path: { id: sessionID },
@@ -107,17 +118,25 @@ export function createCompactionHook(
 
       const messages = (resp.data ?? resp) as Array<{ info: any; parts?: Array<{ type: string; text?: string }> }>;
       
-      const summaryMessage = messages.find(m => 
-        m.info.role === "assistant" && 
-        m.info.summary === true
-      );
+      const isSummaryMessage = (m: { info: any }) =>
+        m.info.role === "assistant" &&
+        m.info.summary === true;
+
+      const summaryMessage = summaryMessageID
+        ? messages.find(m => isSummaryMessage(m) && m.info.id === summaryMessageID)
+        : messages.find(isSummaryMessage);
 
       if (summaryMessage?.parts) {
         const textParts = summaryMessage.parts.filter(p => p.type === "text" && p.text);
         const summaryContent = textParts.map(p => p.text).join("\n");
         
         if (summaryContent && summaryContent.length > 100) {
-          const summaryAgent = summaryMessage.info?.agent ?? fallbackAgent;
+          const summaryAgent = firstString(
+            summaryMessage.info?.agent,
+            summaryMessage.info?.agentName,
+            summaryMessage.info?.mode,
+            fallbackAgent,
+          );
           const banks = resolveBanksForCompaction({ agent: summaryAgent });
           // Save summary as memory
           await hindsightClient.addMemory(
@@ -155,14 +174,15 @@ export function createCompactionHook(
         const info = props?.info as any;
         if (!info) return;
 
-        const agent = typeof info.agent === "string" ? info.agent : undefined;
+        const agent = firstString(info.agent, info.agentName, info.mode);
 
         const sessionID = info.sessionID;
         if (!sessionID) return;
+        const messageID = typeof info.id === "string" ? info.id : undefined;
 
         // Check if this is a summary message
         if (info.role === "assistant" && info.summary === true && info.finish) {
-          await handleSummary(sessionID, agent);
+          await handleSummary(sessionID, agent, messageID);
           return;
         }
 
@@ -204,7 +224,7 @@ export function createCompactionHook(
           await ctx.client.session.promptAsync({
             path: { id: sessionID },
             body: {
-              agent: info.agent,
+              agent,
               parts: [{ type: "text", text: prompt }],
             },
             query: { directory: ctx.directory },

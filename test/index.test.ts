@@ -8,6 +8,8 @@ const hindsightCalls: {
   addMemory: [],
 };
 
+const logCalls: Array<{ message: string; data: unknown }> = [];
+
 mock.module("../src/services/client.js", () => ({
   hindsightClient: {
     listMemories: async (bank: string, limit?: number) => {
@@ -18,11 +20,26 @@ mock.module("../src/services/client.js", () => ({
       hindsightCalls.addMemory.push({ content, bank, metadata });
       return { success: true };
     },
+    getProfile: async () => ({ success: true, results: [] }),
+    searchMemories: async () => ({ success: true, results: [] }),
+  },
+}));
+
+mock.module("../src/services/logger.js", () => ({
+  log: (message: string, data?: unknown) => {
+    logCalls.push({ message, data });
   },
 }));
 
 const { HindsightPlugin, extractAgentName } = await import("../src/index");
 const { createCompactionHook } = await import("../src/services/compaction");
+const { resolveBanks } = await import("../src/services/tags");
+
+beforeEach(() => {
+  hindsightCalls.listMemories = [];
+  hindsightCalls.addMemory = [];
+  logCalls.length = 0;
+});
 
 function pluginContext(directory = "/tmp/opencode-hindsight-test") {
   return {
@@ -96,14 +113,94 @@ describe("hindsight tool bankAlias routing errors", () => {
       else process.env.HINDSIGHT_BANK_ID = previousBank;
     }
   });
+
+  test("uses ToolContext.directory for generated project bank routing", async () => {
+    const previousProjectBank = process.env.HINDSIGHT_PROJECT_BANK_ID;
+    const previousBank = process.env.HINDSIGHT_BANK_ID;
+
+    try {
+      delete process.env.HINDSIGHT_PROJECT_BANK_ID;
+      delete process.env.HINDSIGHT_BANK_ID;
+
+      const plugin = await HindsightPlugin(pluginContext("/tmp/plugin-root/project-a") as any);
+      await plugin.tool.hindsight.execute(
+        { mode: "list", scope: "project" },
+        {
+          agent: "",
+          directory: "/tmp/tool-context/project-b",
+          sessionID: "session-1",
+          messageID: "message-1",
+          worktree: "/tmp/tool-context/project-b",
+        } as any
+      );
+
+      expect(hindsightCalls.listMemories[0]?.bank).toBe(
+        resolveBanks({ directory: "/tmp/tool-context/project-b" }).project,
+      );
+    } finally {
+      if (previousProjectBank === undefined) delete process.env.HINDSIGHT_PROJECT_BANK_ID;
+      else process.env.HINDSIGHT_PROJECT_BANK_ID = previousProjectBank;
+
+      if (previousBank === undefined) delete process.env.HINDSIGHT_BANK_ID;
+      else process.env.HINDSIGHT_BANK_ID = previousBank;
+    }
+  });
+
+  test("ignores model-supplied agent fields in tool args", async () => {
+    const plugin = await HindsightPlugin(pluginContext() as any);
+
+    await plugin.tool.hindsight.execute(
+      {
+        mode: "list",
+        scope: "project",
+        agent: "spoofed-agent",
+        info: { agent: "nested-spoofed-agent" },
+      } as any,
+      {
+        directory: "/tmp/opencode-hindsight-test",
+        sessionID: "session-spoof-test",
+        messageID: "message-spoof-test",
+        worktree: "/tmp/opencode-hindsight-test",
+      } as any
+    );
+
+    const routingLog = logCalls.find((entry) => entry.message === "tool.execute: routing");
+    expect(routingLog?.data).toMatchObject({ agent: "none" });
+  });
+
+  test("does not log raw tool args or chat message previews", async () => {
+    const plugin = await HindsightPlugin(pluginContext() as any);
+    const sentinel = "review-secret-sentinel";
+
+    await plugin.tool.hindsight.execute(
+      { mode: "add", scope: "project", content: sentinel, type: "conversation" },
+      { agent: "review-security", directory: "/tmp/opencode-hindsight-test" } as any
+    );
+
+    await plugin.tool.hindsight.execute(
+      { mode: "search", scope: "project", query: `${sentinel}-query` },
+      { agent: "review-security", directory: "/tmp/opencode-hindsight-test" } as any
+    );
+
+    await plugin["chat.message"](
+      { sessionID: "session-log-test", agent: "review-security" } as any,
+      {
+        message: { id: "message-log-test" },
+        parts: [
+          {
+            id: "part-log-test",
+            type: "text",
+            text: sentinel,
+          },
+        ],
+      } as any
+    );
+
+    expect(JSON.stringify(logCalls)).not.toContain(sentinel);
+  });
 });
 
 describe("createCompactionHook agent-aware routing", () => {
-  beforeEach(() => {
-    hindsightCalls.listMemories = [];
-    hindsightCalls.addMemory = [];
-  });
-
   function banksForAgent(agent?: string | null) {
     return {
       user: "user-bank",
@@ -114,7 +211,7 @@ describe("createCompactionHook agent-aware routing", () => {
     };
   }
 
-  test("uses event agent when fetching project memories for compaction", async () => {
+  test("uses SDK message mode when fetching project memories for compaction", async () => {
     const hook = createCompactionHook(
       pluginContext() as any,
       ({ agent } = {}) => banksForAgent(agent),
@@ -129,7 +226,7 @@ describe("createCompactionHook agent-aware routing", () => {
             sessionID: "session-1",
             role: "assistant",
             finish: true,
-            agent: "review-security",
+            mode: "review-security",
             providerID: "test",
             modelID: "model",
             tokens: { input: 50, output: 50, cache: { read: 0 } },
@@ -141,12 +238,21 @@ describe("createCompactionHook agent-aware routing", () => {
     expect(hindsightCalls.listMemories[0]?.bank).toBe("review-security-project-bank");
   });
 
-  test("uses summary message agent before fallback agent when saving summaries", async () => {
+  test("uses the updated summary message id and mode before fallback agent when saving summaries", async () => {
     const ctx = pluginContext() as any;
     ctx.client.session.messages = async () => ({
       data: [
         {
-          info: { role: "assistant", summary: true, agent: "summary-agent" },
+          info: { id: "old-summary", role: "assistant", summary: true, mode: "old-agent" },
+          parts: [
+            {
+              type: "text",
+              text: "This stale summary should not be persisted. ".repeat(3),
+            },
+          ],
+        },
+        {
+          info: { id: "new-summary", role: "assistant", summary: true, mode: "summary-agent" },
           parts: [
             {
               type: "text",
@@ -165,10 +271,11 @@ describe("createCompactionHook agent-aware routing", () => {
         properties: {
           info: {
             sessionID: "session-2",
+            id: "new-summary",
             role: "assistant",
             summary: true,
             finish: true,
-            agent: "fallback-agent",
+            mode: "fallback-agent",
           },
         },
       },

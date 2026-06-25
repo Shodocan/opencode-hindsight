@@ -42,10 +42,8 @@ export function getProjectBank(directory: string): string {
 }
 
 export function getBanks(directory: string): { user: string; project: string } {
-  return {
-    user: getUserBank(),
-    project: getProjectBank(directory),
-  };
+  const banks = resolveBanks({ directory });
+  return { user: banks.user, project: banks.project };
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +207,18 @@ export function resolveBanks(
   let matchedAlias: string | undefined;
   let matchedAgentPattern: string | undefined;
 
+  const alias = input.projectBankAlias?.trim() || undefined;
+  let runtimeAliasBank: string | undefined;
+
+  if (alias !== undefined) {
+    const hasAlias = Object.prototype.hasOwnProperty.call(cfgRuntimeBanks, alias);
+    const resolved = hasAlias ? cfgRuntimeBanks[alias] : undefined;
+    if (typeof resolved !== "string" || !resolved.trim()) {
+      throw new Error(`Unknown runtime project bank alias: ${alias}`);
+    }
+    runtimeAliasBank = resolved.trim();
+  }
+
   // 1. HINDSIGHT_PROJECT_BANK_ID
   if (project === undefined && env.HINDSIGHT_PROJECT_BANK_ID) {
     project = env.HINDSIGHT_PROJECT_BANK_ID;
@@ -222,13 +232,8 @@ export function resolveBanks(
   }
 
   // 3. Runtime project bank alias
-  if (project === undefined && input.projectBankAlias) {
-    const alias = input.projectBankAlias;
-    const resolved = cfgRuntimeBanks[alias];
-    if (resolved === undefined) {
-      throw new Error(`Unknown runtime project bank alias: ${alias}`);
-    }
-    project = resolved;
+  if (project === undefined && alias !== undefined && runtimeAliasBank !== undefined) {
+    project = runtimeAliasBank;
     projectSource = "runtimeProjectBanks";
     matchedAlias = alias;
   }

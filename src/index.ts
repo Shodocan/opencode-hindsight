@@ -190,7 +190,7 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
         }
 
         log("chat.message: processing", {
-          messagePreview: userMessage.slice(0, 100),
+          messageLength: userMessage.length,
           partsCount: output.parts.length,
           textPartsCount: textParts.length,
         });
@@ -304,7 +304,20 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
           context?: ToolContext
         ) {
           const mode = args.mode || "help";
-          log("tool.execute: start", { mode, baseUrl: CONFIG.baseUrl, configured: isConfigured(), args: { ...args } });
+          log("tool.execute: start", {
+            mode,
+            baseUrl: CONFIG.baseUrl,
+            configured: isConfigured(),
+            scope: args.scope,
+            type: args.type,
+            hasContent: typeof args.content === "string" && args.content.length > 0,
+            contentLength: typeof args.content === "string" ? args.content.length : 0,
+            hasQuery: typeof args.query === "string" && args.query.length > 0,
+            queryLength: typeof args.query === "string" ? args.query.length : 0,
+            hasMemoryId: typeof args.memoryId === "string" && args.memoryId.length > 0,
+            limit: args.limit,
+            bankAlias: args.bankAlias,
+          });
 
           if (!isConfigured()) {
             return JSON.stringify({
@@ -321,10 +334,11 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
             });
           }
 
-          const agent = extractAgentName(context, args);
+          const callDirectory = context?.directory ?? directory;
+          const agent = extractAgentName(context);
           let banks: ResolvedBanks;
           try {
-            banks = resolveBanks({ directory, agent, projectBankAlias: args.bankAlias });
+            banks = resolveBanks({ directory: callDirectory, agent, projectBankAlias: args.bankAlias });
           } catch (err) {
             return JSON.stringify({
               success: false,
