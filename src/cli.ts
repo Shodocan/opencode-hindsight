@@ -8,7 +8,7 @@ import { stripJsoncComments } from "./services/jsonc.js";
 const OPENCODE_CONFIG_DIR = join(homedir(), ".config", "opencode");
 const OPENCODE_COMMAND_DIR = join(OPENCODE_CONFIG_DIR, "command");
 const OH_MY_OPENCODE_CONFIG = join(OPENCODE_CONFIG_DIR, "oh-my-opencode.json");
-const PLUGIN_NAME = "opencode-hindsight";
+const PLUGIN_NAME = "@shodocan/opencode-hindsight";
 
 const HINDSIGHT_INIT_COMMAND = `---
 description: Initialize Hindsight with comprehensive codebase knowledge
@@ -424,8 +424,9 @@ Commands:
     --disable-context-recovery   Disable Oh My OpenCode's context hook
 
 Examples:
-  bunx opencode-hindsight install
-  bunx opencode-hindsight install --no-tui
+  npx -p @shodocan/opencode-hindsight opencode-hindsight install
+  npx -p @shodocan/opencode-hindsight opencode-hindsight install --no-tui
+  opencode-hindsight install --no-tui
 `);
 }
 

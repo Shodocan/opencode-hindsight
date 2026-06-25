@@ -1,14 +1,27 @@
-# opencode-hindsight
+# @shodocan/opencode-hindsight
 
-**OpenCode implementation of Hindsight plugin** - Provides persistent memory for OpenCode AI assistants across sessions and projects.
+**Shodocan OpenCode Hindsight plugin** — Agent-aware persistent memory for OpenCode AI coding assistants.
 
-Your agent remembers what you tell it - across sessions, across projects.
+> This package is the **Shodocan** distribution of the OpenCode Hindsight plugin, published as `@shodocan/opencode-hindsight` on npm. It is **not** the vanilla Vectorize Hindsight plugin. The Hindsight server remains a separate backend that you deploy independently; this plugin is the OpenCode integration layer that connects agents to Hindsight memory.
+
+Your agent remembers what you tell it — across sessions, across projects.
+
+## Shodocan Changes
+
+Compared to the vanilla `opencode-hindsight` plugin, this distribution adds:
+
+- **Agent-aware project bank routing** — subagents and the main agent use separate project banks via `agentProjectBanks` (exact name and `*` glob patterns), so review agents and build agents keep their memories isolated.
+- **Runtime bank aliases** — `runtimeProjectBanks` defines allowlisted per-tool-call bank aliases (`bankAlias`) so an agent can query other projects' banks in a single call without reconfiguration.
+- **Trusted tool-context routing** — project bank precedence chain (`HINDSIGHT_PROJECT_BANK_ID` → `HINDSIGHT_BANK_ID` → `runtimeProjectBanks` alias → `agentProjectBanks` match → `projectBank` → generated bank) ensures predictable routing for every tool call.
+- **Compaction memory routing** — when OpenCode context hits the compaction threshold, project memories are injected into the summary context and the session summary is saved as a memory, preserving context across compaction events.
+- **Privacy-safe logging** — content wrapped in `<private>` tags is never stored in Hindsight memory; structured logging keeps plugin operations visible without leaking user data.
+- **Offline / Chinese deployment notes** — the Quick Start section documents Huawei SWR mirror pull commands for `ghcr.io`-blocked regions and local model mounting for air-gapped deployments.
 
 ## Quick Start
 
 ### 1. Deploy Hindsight Server
 
-[Hindsight](https://github.com/vectorize-io/hindsight) is the semantic memory backend required by this plugin. You need to deploy it first:
+[Hindsight](https://github.com/vectorize-io/hindsight) is the semantic memory backend required by this plugin. You need to deploy it first.
 
 **Using Docker Compose (recommended):**
 This project includes a ready-to-use Docker Compose configuration in the `deploy/` directory that's pre-configured for DeepSeek integration.
@@ -19,7 +32,6 @@ cd deploy/
 
 # Create .env file with your DeepSeek API key
 echo "HINDSIGHT_API_LLM_API_KEY=your-deepseek-api-key-here" > .env
-# Or manually create .env file with your API key
 
 # Start Hindsight server
 docker compose up -d
@@ -42,7 +54,6 @@ docker run -d \
   -p 8888:8888 \
   -v hindsight_data:/data \
   ghcr.io/vectorize-io/hindsight:latest
-
 ```
 
 > **For Chinese users**: If you cannot access `ghcr.io`, use the Huawei SWR mirror:
@@ -87,20 +98,34 @@ curl http://localhost:8888/health
 
 ### 2. Install the Plugin
 
-Clone the repository and install dependencies:
+#### From npm (recommended)
 
 ```bash
-# Clone the opencode-hindsight repository
-git clone https://github.com/opencode-community/opencode-hindsight.git
+npm install -g @shodocan/opencode-hindsight
+```
+
+Then register the plugin in your OpenCode configuration:
+
+```json
+{
+  "plugin": ["@shodocan/opencode-hindsight"]
+}
+```
+
+Save the file to `~/.config/opencode/opencode.json`.
+
+#### From source (local / file:// development)
+
+Clone the repository and build locally:
+
+```bash
+git clone https://github.com/Shodocan/opencode-hindsight.git
 cd opencode-hindsight
 
-# Install dependencies
 bun install
-
-# Build the plugin
 bun run build
 
-# Link the plugin to OpenCode configuration
+# Link the plugin to OpenCode configuration using a file:// path
 echo '{"plugin": ["file://'$(pwd)'"]}' > ~/.config/opencode/opencode.json
 ```
 
@@ -108,7 +133,7 @@ This will:
 - Clone the plugin source code
 - Install all required dependencies
 - Build the plugin locally
-- Register the plugin in your OpenCode configuration
+- Register the plugin in your OpenCode configuration using a local file:// path
 - Create the `/hindsight-init` command for codebase indexing
 
 **Note**: Restart OpenCode for the changes to take effect.
@@ -139,24 +164,26 @@ opencode -c  # Should show 'hindsight' in the available tools
 ```
 
 **Test the plugin:**
-```bash
-# Try adding a test memory
-hindsight add content="Test memory" type="preference" scope="project"
-```
+After restarting OpenCode, ask the agent to save a test memory, or use the in-session `hindsight` tool if your OpenCode UI exposes tool calls directly. The `hindsight` tool is an OpenCode agent tool, not the `opencode-hindsight` terminal binary.
 
 ## Installation
 
 > **Note**: For a complete step-by-step guide including Hindsight server deployment, see the [Quick Start](#quick-start) section above.
 
-### For Humans
+### From npm (Recommended)
+
+Install the package and register it in your OpenCode configuration:
 
 ```bash
-# Clone the repository and build from source
-git clone https://github.com/opencode-community/opencode-hindsight.git
-cd opencode-hindsight
-bun install
-bun run build
-echo '{"plugin": ["file://'$(pwd)'"]}' > ~/.config/opencode/opencode.json
+npm install -g @shodocan/opencode-hindsight
+```
+
+Add the plugin entry to `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "plugin": ["@shodocan/opencode-hindsight"]
+}
 ```
 
 Hindsight runs locally on port 8888 by default. If you need to connect to a different server, set the base URL:
@@ -165,45 +192,56 @@ Hindsight runs locally on port 8888 by default. If you need to connect to a diff
 export HINDSIGHT_BASE_URL="http://localhost:8888"
 ```
 
-**Or let your agent do it** - paste this into OpenCode:
+**Or let your agent do it** — paste this into OpenCode:
 
 ```
-Install opencode-hindsight by following https://raw.githubusercontent.com/opencode-community/opencode-hindsight/main/README.md
+Install @shodocan/opencode-hindsight by following https://raw.githubusercontent.com/Shodocan/opencode-hindsight/main/README.md
 ```
+
+### Local Source / File:// Development
+
+When developing or testing the plugin locally, use a file path in your OpenCode configuration:
+
+```json
+{
+  "plugin": ["file:///path/to/opencode-hindsight"]
+}
+```
+
+Replace `/path/to/opencode-hindsight` with the absolute path to the plugin directory. The plugin source repository is https://github.com/Shodocan/opencode-hindsight.
 
 ### For LLM Agents
 
 <details>
 <summary>Instructions for LLM Agents (click to expand)</summary>
 
-If you're an LLM agent helping set up opencode-hindsight, follow these steps:
+If you're an LLM agent helping set up `@shodocan/opencode-hindsight`, follow these steps:
 
-#### Step 1: Run the installer
+#### Step 1: Install from npm or clone from source
 
+**npm install (recommended):**
 ```bash
-# Clone the repository and build from source
-git clone https://github.com/opencode-community/opencode-hindsight.git
+npm install -g @shodocan/opencode-hindsight
+```
+
+**Or clone and build:**
+```bash
+git clone https://github.com/Shodocan/opencode-hindsight.git
 cd opencode-hindsight
 bun install
 bun run build
-echo '{"plugin": ["file://'$(pwd)'"]}' > ~/.config/opencode/opencode.json
 ```
 
-This will:
+#### Step 2: Register in OpenCode configuration
 
-- Clone the plugin source code and install dependencies
-- Build the plugin locally
-- Register the plugin in `~/.config/opencode/opencode.json` using a file:// path
-- Create the `/hindsight-init` command
-
-#### Step 2: Verify the config
-
-```bash
-cat ~/.config/opencode/opencode.json
+**For npm install:**
+```json
+{
+  "plugin": ["@shodocan/opencode-hindsight"]
+}
 ```
 
-Should contain a `file://` path pointing to the plugin directory:
-
+**For local source:**
 ```json
 {
   "plugin": ["file:///path/to/opencode-hindsight"]
@@ -212,17 +250,9 @@ Should contain a `file://` path pointing to the plugin directory:
 
 Replace `/path/to/opencode-hindsight` with the absolute path of the cloned directory.
 
-If not, add it manually:
+Save to `~/.config/opencode/opencode.json`.
 
-**JSON:**
-
-```json
-{
-  "plugin": ["file:///path/to/opencode-hindsight"]
-}
-```
-
-**Note**: OpenCode uses `.json` format, not `.jsonc`. The plugin path can be a local file path if developing locally:
+**Note**: OpenCode uses `.json` format for `opencode.json`. The plugin path can be a local file path if developing locally.
 
 #### Step 3: Configure Hindsight server
 
@@ -240,7 +270,7 @@ Or create `~/.config/opencode/hindsight.jsonc`:
 }
 ```
 
-**Note**: Both `.jsonc` and `.json` formats are supported for Hindsight configuration, but OpenCode configuration uses `.json` format only.
+Both `.jsonc` and `.json` formats are supported for Hindsight configuration, but OpenCode configuration uses `.json` format only.
 
 #### Step 4: Verify setup
 
@@ -253,7 +283,7 @@ opencode -c
 They should see `hindsight` in the tools list. If not, check:
 
 1. Is Hindsight server running? (default: http://localhost:8888)
-2. Is the plugin in `opencode.jsonc`?
+2. Is the plugin in `opencode.json`?
 3. Check logs: `tail ~/.opencode-hindsight.log`
 
 #### Step 5: Initialize codebase memory (optional)
@@ -261,18 +291,6 @@ They should see `hindsight` in the tools list. If not, check:
 Run `/hindsight-init` to have the agent explore and memorize the codebase.
 
 </details>
-
-### Local Development Configuration
-
-When developing or testing the plugin locally, you can use a file path in your OpenCode configuration:
-
-```json
-{
-  "plugin": ["file:///path/to/opencode-hindsight"]
-}
-```
-
-Replace `/path/to/opencode-hindsight` with the absolute path to the plugin directory.
 
 ## Features
 
@@ -313,7 +331,7 @@ Relevant Memories:
 - [82%] Build fails if .env.local missing
 ```
 
-The agent uses this context automatically - no manual prompting needed.
+The agent uses this context automatically — no manual prompting needed.
 
 ### Keyword Detection
 
@@ -366,7 +384,7 @@ The `hindsight` tool is available to the agent:
 
 ### Important Notes:
 - **`add` operation is asynchronous by default** to prevent timeouts during memory processing
-- **Metadata values must be strings** - non-string values are automatically converted
+- **Metadata values must be strings** — non-string values are automatically converted
 - **Response includes `operationId`** for tracking asynchronous operations
 - **Memory processing may take 30-60 seconds** for complex content extraction
 
@@ -461,14 +479,14 @@ Create `~/.config/opencode/hindsight.jsonc` or `~/.config/opencode/hindsight.jso
 }
 ```
 
-All fields optional. 
+All fields optional.
 
 ### Environment Variables
 
 The following environment variables take precedence over configuration file settings:
 
 - `HINDSIGHT_BASE_URL`: Hindsight server URL (e.g., `http://localhost:8888`)
-  - **Priority**: Highest - overrides config file and defaults
+  - **Priority**: Highest — overrides config file and defaults
   - **Use case**: Different servers for development/production, docker containers
 
 Configuration loading order (highest to lowest priority):
@@ -488,7 +506,7 @@ Project bank precedence (highest to lowest):
 ### Configuration Notes:
 - **File format**: Both `.jsonc` (with comments) and `.json` formats are supported
 - **Memory operations are asynchronous by default** to prevent timeouts (30-60 seconds processing time)
-- **Metadata values must be strings** - non-string values are automatically converted:
+- **Metadata values must be strings** — non-string values are automatically converted:
   - Numbers and booleans: converted to string representation
   - Objects and arrays: converted to JSON strings
   - Null/undefined: converted to empty string
@@ -591,7 +609,7 @@ Add to `~/.config/opencode/oh-my-opencode.json`:
 
 ```bash
 # Clone and setup
-git clone <repository-url>
+git clone https://github.com/Shodocan/opencode-hindsight.git
 cd opencode-hindsight
 
 # Install dependencies
@@ -603,7 +621,7 @@ bun run build
 # Type checking
 bun run typecheck
 
-# Test with local configuration
+# Test with local configuration (file:// path)
 echo '{"plugin": ["file://'$(pwd)'"]}' > ~/.config/opencode/opencode.json
 ```
 
