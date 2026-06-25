@@ -80,7 +80,7 @@ function firstString(...values: unknown[]): string | undefined {
   return undefined;
 }
 
-function extractAgentName(...sources: unknown[]): string | undefined {
+export function extractAgentName(...sources: unknown[]): string | undefined {
   for (const source of sources) {
     const record = asRecord(source);
     if (!record) continue;
