@@ -435,6 +435,18 @@ Create `~/.config/opencode/hindsight.jsonc` or `~/.config/opencode/hindsight.jso
   // Optional: Set exact project bank (overrides auto-generated bank)
   "projectBank": "my-project-bank",
 
+  // Optional: Route specific agents/subagents to project banks by exact name or glob
+  "agentProjectBanks": {
+    "review-*": "proj-review",
+    "tdd": "proj-tdd"
+  },
+
+  // Optional: Allowlisted per-tool-call project bank aliases
+  "runtimeProjectBanks": {
+    "other-repo": "proj-other-repo",
+    "review": "proj-review"
+  },
+
   // Max tokens for recall operations (default: 4096)
   "maxTokens": 4096,
 
@@ -463,6 +475,15 @@ Configuration loading order (highest to lowest priority):
 1. Environment variables
 2. Configuration file (`hindsight.jsonc` or `hindsight.json`)
 3. Default values
+
+Project bank precedence (highest to lowest):
+
+1. `HINDSIGHT_PROJECT_BANK_ID`
+2. `HINDSIGHT_BANK_ID`
+3. allowlisted `bankAlias` from `runtimeProjectBanks`
+4. matching `agentProjectBanks` exact/glob entry
+5. `projectBank`
+6. generated `p_<project>_<hash>` bank
 
 ### Configuration Notes:
 - **File format**: Both `.jsonc` (with comments) and `.json` formats are supported
@@ -501,9 +522,53 @@ This is useful when you want to:
 - **Organize memories using your own naming scheme**
 - **Integrate with existing Hindsight banks** from other tools
 
+### Agent-Aware Project Bank Routing
+
+Subagents can use different project banks without changing OpenCode core. Configure `agentProjectBanks` with exact names or `*` glob patterns:
+
+```jsonc
+{
+  "projectBank": "proj-default",
+  "agentProjectBanks": {
+    "review-*": "proj-review",
+    "agent-a": "proj-agent-a",
+    "agent-b": "proj-agent-b"
+  }
+}
+```
+
+With this configuration:
+
+- the main/default agent uses `proj-default`
+- `agent-a` uses `proj-agent-a`
+- `agent-b` uses `proj-agent-b`
+- `review-security-skeptic`, `review-bug-hunter`, and other `review-*` agents use `proj-review`
+
+Exact agent matches take precedence over glob patterns. If no agent mapping matches, the plugin falls back to `projectBank` or the generated project bank.
+
+### Runtime Project Bank Aliases
+
+For one-off tool calls, configure allowlisted aliases with `runtimeProjectBanks`:
+
+```jsonc
+{
+  "runtimeProjectBanks": {
+    "other-repo": "proj-other-repo"
+  }
+}
+```
+
+Then call:
+
+```text
+hindsight(mode: "search", query: "auth flow", bankAlias: "other-repo")
+```
+
+`bankAlias` applies only to that tool call. Unknown aliases return an error. The tool does not accept arbitrary bank IDs from the model.
+
 ### API Compatibility
 
-This plugin uses the official `@vectorize-io/hindsight-client` (v0.5.3) and is compatible with Hindsight API v1. Key compatibility notes:
+This plugin uses the official `@vectorize-io/hindsight-client` (v0.6.2) and is compatible with Hindsight API v1. Key compatibility notes:
 
 - **Asynchronous operations**: Memory addition uses `async: true` by default to prevent timeouts
 - **Metadata handling**: All metadata values are converted to strings to match API requirements
