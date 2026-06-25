@@ -148,10 +148,14 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
   };
 
   const compactionHook = isConfigured() && ctx.client
-    ? createCompactionHook(ctx as CompactionContext, defaultBanks, {
-        threshold: CONFIG.compactionThreshold,
-        getModelLimit,
-      })
+    ? createCompactionHook(
+        ctx as CompactionContext,
+        ({ agent } = {}) => resolveBanks({ directory, agent: agent ?? undefined }),
+        {
+          threshold: CONFIG.compactionThreshold,
+          getModelLimit,
+        }
+      )
     : null;
 
   return {

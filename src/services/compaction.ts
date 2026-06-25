@@ -1,6 +1,7 @@
 import { hindsightClient } from "./client.js";
 import { log } from "./logger.js";
 import { CONFIG } from "../config.js";
+import type { ResolvedBanks } from "./tags.js";
 
 const DEFAULT_THRESHOLD = 0.80;
 const COMPACTION_COOLDOWN_MS = 30_000;
@@ -9,6 +10,8 @@ interface CompactionState {
   lastCompactionTime: Map<string, number>;
   compactionInProgress: Set<string>;
 }
+
+export type CompactionBankResolver = (input?: { agent?: string | null }) => ResolvedBanks;
 
 export interface CompactionOptions {
   threshold?: number;
@@ -73,7 +76,7 @@ This context is critical for maintaining continuity after compaction.
 
 export function createCompactionHook(
   ctx: CompactionContext,
-  banks: { user: string; project: string },
+  resolveBanksForCompaction: CompactionBankResolver,
   options?: CompactionOptions
 ) {
   const state: CompactionState = {
@@ -83,18 +86,19 @@ export function createCompactionHook(
 
   const threshold = options?.threshold ?? DEFAULT_THRESHOLD;
 
-  async function fetchProjectMemoriesForCompaction(): Promise<string[]> {
+  async function fetchProjectMemoriesForCompaction(agent?: string | null): Promise<string[]> {
     try {
+      const banks = resolveBanksForCompaction({ agent });
       const result = await hindsightClient.listMemories(banks.project, CONFIG.maxProjectMemories);
       const documents = result.documents || [];
       return documents.map((m: any) => m.text || m.content || m.summary || "").filter(Boolean);
     } catch (err) {
-      log("[compaction] failed to fetch project memories", { error: String(err) });
+      log("[compaction] failed to fetch project memories", { error: String(err), agent });
       return [];
     }
   }
 
-  async function handleSummary(sessionID: string): Promise<void> {
+  async function handleSummary(sessionID: string, fallbackAgent?: string | null): Promise<void> {
     try {
       const resp = await ctx.client.session.messages({
         path: { id: sessionID },
@@ -113,13 +117,20 @@ export function createCompactionHook(
         const summaryContent = textParts.map(p => p.text).join("\n");
         
         if (summaryContent && summaryContent.length > 100) {
+          const summaryAgent = summaryMessage.info?.agent ?? fallbackAgent;
+          const banks = resolveBanksForCompaction({ agent: summaryAgent });
           // Save summary as memory
           await hindsightClient.addMemory(
             `[Session Summary]\n${summaryContent}`,
             banks.project,
             { type: "conversation" }
           );
-          log("[compaction] summary saved as memory", { sessionID });
+          log("[compaction] summary saved as memory", {
+            sessionID,
+            agent: summaryAgent,
+            projectBankSource: banks.projectSource,
+            agentPattern: banks.agentPattern,
+          });
         }
       }
     } catch (err) {
@@ -144,12 +155,14 @@ export function createCompactionHook(
         const info = props?.info as any;
         if (!info) return;
 
+        const agent = typeof info.agent === "string" ? info.agent : undefined;
+
         const sessionID = info.sessionID;
         if (!sessionID) return;
 
         // Check if this is a summary message
         if (info.role === "assistant" && info.summary === true && info.finish) {
-          await handleSummary(sessionID);
+          await handleSummary(sessionID, agent);
           return;
         }
 
@@ -184,7 +197,7 @@ export function createCompactionHook(
           }).catch(() => {});
 
           // Fetch project memories and create prompt
-          const projectMemories = await fetchProjectMemoriesForCompaction();
+          const projectMemories = await fetchProjectMemoriesForCompaction(agent);
           const prompt = createCompactionPrompt(projectMemories);
 
           // Inject prompt as a message
