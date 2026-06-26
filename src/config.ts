@@ -100,6 +100,8 @@ function loadConfig(): HindsightConfig {
 
 const fileConfig = loadConfig();
 
+const ENV_REF_RE = /^\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})$/;
+
 function getBaseUrl(): string {
   // Priority: env var > config file > default
   if (process.env.HINDSIGHT_BASE_URL) return process.env.HINDSIGHT_BASE_URL;
@@ -108,16 +110,44 @@ function getBaseUrl(): string {
 }
 
 /**
- * Sanitize a bank-name map from config: reject arrays, drop entries with
- * non-string keys/values, and strip leading/trailing whitespace. Returns an
- * empty object when absent or not a plain object.
+ * Sanitize one configured bank value. Full-value environment references of
+ * the form `$VAR` and `${VAR}` are expanded from the plugin process env.
+ * Partial interpolation is intentionally unsupported and remains literal.
  */
-export function sanitizeBankMap(map: Record<string, string> | undefined): Record<string, string> {
+export function sanitizeBankValue(
+  value: unknown,
+  env: Record<string, string | undefined> = process.env,
+): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const match = trimmed.match(ENV_REF_RE);
+  if (!match) return trimmed;
+
+  const envName = match[1] ?? match[2];
+  if (!envName) return undefined;
+  const envValue = env[envName]?.trim();
+  return envValue || undefined;
+}
+
+/**
+ * Sanitize a bank-name map from config: reject arrays, drop entries with
+ * non-string keys/values, strip leading/trailing whitespace, and expand
+ * full-value env refs in values. Returns an empty object when absent or not a
+ * plain object.
+ */
+export function sanitizeBankMap(
+  map: unknown,
+  env: Record<string, string | undefined> = process.env,
+): Record<string, string> {
   if (!map || typeof map !== 'object' || Array.isArray(map)) return {};
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(map)) {
-    if (typeof key === 'string' && typeof value === 'string' && key.trim() && value.trim()) {
-      out[key.trim()] = value.trim();
+    const cleanKey = key.trim();
+    const cleanValue = sanitizeBankValue(value, env);
+    if (cleanKey && cleanValue) {
+      out[cleanKey] = cleanValue;
     }
   }
   return out;
@@ -131,8 +161,8 @@ export const CONFIG = {
   maxProfileItems: fileConfig.maxProfileItems ?? DEFAULTS.maxProfileItems,
   injectProfile: fileConfig.injectProfile ?? DEFAULTS.injectProfile,
   bankPrefix: fileConfig.bankPrefix ?? DEFAULTS.bankPrefix,
-  userBank: fileConfig.userBank,
-  projectBank: fileConfig.projectBank,
+  userBank: sanitizeBankValue(fileConfig.userBank),
+  projectBank: sanitizeBankValue(fileConfig.projectBank),
   maxTokens: fileConfig.maxTokens ?? DEFAULTS.maxTokens,
   budget: fileConfig.budget ?? DEFAULTS.budget,
   keywordPatterns: [

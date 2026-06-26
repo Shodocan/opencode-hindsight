@@ -1,6 +1,6 @@
 {
   "name": "@shodocan/opencode-hindsight",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "OpenCode plugin that gives coding agents persistent memory using Hindsight",
   "type": "module",
   "main": "dist/index.js",
