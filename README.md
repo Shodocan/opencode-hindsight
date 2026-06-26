@@ -540,6 +540,30 @@ This is useful when you want to:
 - **Organize memories using your own naming scheme**
 - **Integrate with existing Hindsight banks** from other tools
 
+### Bank Names from Environment Variables
+
+Bank fields can reference environment variables when the entire configured value is a variable reference. Supported forms are `$VAR` and `${VAR}`:
+
+```jsonc
+{
+  "userBank": "$OPENCODE_USER_BANK",
+  "projectBank": "$OPENCODE_PROJECT_BANK",
+  "agentProjectBanks": {
+    "review-*": "$OPENCODE_REVIEW_BANK"
+  },
+  "runtimeProjectBanks": {
+    "reviews": "${OPENCODE_REVIEW_BANK}"
+  }
+}
+```
+
+Rules:
+
+- Only full-value references are expanded. `"proj-$OPENCODE_REVIEW_BANK"` remains literal.
+- Missing or empty environment variables are treated as unset.
+- For `agentProjectBanks` and `runtimeProjectBanks`, entries with missing or empty env refs are dropped.
+- Expansion happens when the plugin loads configuration, so restart OpenCode after changing these variables.
+
 ### Agent-Aware Project Bank Routing
 
 Subagents can use different project banks without changing OpenCode core. Configure `agentProjectBanks` with exact names or `*` glob patterns:

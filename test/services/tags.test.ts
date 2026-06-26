@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { CONFIG } from "../../src/config";
+import { CONFIG, sanitizeBankMap, sanitizeBankValue } from "../../src/config";
 import { getBanks, resolveBanks } from "../../src/services/tags";
 
 /**
@@ -77,6 +77,26 @@ describe("resolveBanks — agent-aware project bank routing", () => {
       expect(result.agent).toBeUndefined();
       expect(result.agentPattern).toBeUndefined();
       expect(result.projectBankAlias).toBeUndefined();
+    });
+
+    it("uses an env-expanded config.projectBank value", () => {
+      const projectBank = sanitizeBankValue("$OPENCODE_PROJECT_BANK", {
+        OPENCODE_PROJECT_BANK: " proj-project ",
+      });
+
+      const result = resolveBanks(
+        { directory: "/home/user/projects/my-app" },
+        {
+          ...baseOptions,
+          config: {
+            ...baseOptions.config,
+            projectBank,
+          },
+        },
+      );
+
+      expect(result.project).toBe("proj-project");
+      expect(result.projectSource).toBe("config:projectBank");
     });
   });
 
@@ -182,6 +202,33 @@ describe("resolveBanks — agent-aware project bank routing", () => {
       expect(result.agent).toBe("review-final-gpt");
       expect(result.agentPattern).toBe("review-*");
       expect(result.projectBankAlias).toBeUndefined();
+    });
+
+    it("uses env-expanded agentProjectBanks mappings", () => {
+      const agentProjectBanks = sanitizeBankMap(
+        {
+          "review-*": "$OPENCODE_REVIEW_BANK",
+        },
+        { OPENCODE_REVIEW_BANK: " proj-review " },
+      );
+
+      const result = resolveBanks(
+        {
+          directory: "/home/user/projects/my-app",
+          agent: "review-security-skeptic",
+        },
+        {
+          ...baseOptions,
+          config: {
+            ...baseOptions.config,
+            agentProjectBanks,
+          },
+        },
+      );
+
+      expect(result.project).toBe("proj-review");
+      expect(result.projectSource).toBe("agentProjectBanks");
+      expect(result.agentPattern).toBe("review-*");
     });
   });
 
@@ -513,6 +560,33 @@ describe("resolveBanks — agent-aware project bank routing", () => {
         },
       );
       expect(result.project).toBe("resolved-bank-from-alias");
+    });
+
+    it("uses env-expanded runtimeProjectBanks aliases", () => {
+      const runtimeProjectBanks = sanitizeBankMap(
+        {
+          reviews: "${OPENCODE_REVIEW_BANK}",
+        },
+        { OPENCODE_REVIEW_BANK: " proj-review " },
+      );
+
+      const result = resolveBanks(
+        {
+          directory: "/home/user/projects/my-app",
+          projectBankAlias: "reviews",
+        },
+        {
+          ...baseOptions,
+          config: {
+            ...baseOptions.config,
+            runtimeProjectBanks,
+          },
+        },
+      );
+
+      expect(result.project).toBe("proj-review");
+      expect(result.projectSource).toBe("runtimeProjectBanks");
+      expect(result.projectBankAlias).toBe("reviews");
     });
 
     it("reports projectSource 'runtimeProjectBanks' and projectBankAlias for alias match", () => {
