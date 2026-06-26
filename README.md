@@ -542,7 +542,7 @@ This is useful when you want to:
 
 ### Bank Names from Environment Variables
 
-Bank fields can reference environment variables when the entire configured value is a variable reference. Supported forms are `$VAR` and `${VAR}`:
+Bank fields can reference environment variables when the entire configured value is a variable reference. Supported forms are `$VAR` and `${VAR}`, where variable names use shell-style identifiers matching `[A-Za-z_][A-Za-z0-9_]*`:
 
 ```jsonc
 {
@@ -559,7 +559,7 @@ Bank fields can reference environment variables when the entire configured value
 
 Rules:
 
-- Only full-value references are expanded. `"proj-$OPENCODE_REVIEW_BANK"` remains literal.
+- Only full-value references are expanded; unsupported or partial env-reference syntax remains literal. `"proj-$OPENCODE_REVIEW_BANK"` remains literal.
 - Missing or empty environment variables are treated as unset.
 - For `agentProjectBanks` and `runtimeProjectBanks`, entries with missing or empty env refs are dropped.
 - Expansion happens when the plugin loads configuration, so restart OpenCode after changing these variables.
