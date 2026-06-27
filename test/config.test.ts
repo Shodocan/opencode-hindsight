@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sanitizeBankMap, sanitizeBankValue } from "../src/config";
+import { resolveApiKey, resolveBaseUrl, sanitizeBankMap, sanitizeBankValue } from "../src/config";
 
 describe("configuration bank value sanitization", () => {
   test("expands full-value env refs for bank values", () => {
@@ -67,5 +67,70 @@ describe("configuration map sanitization", () => {
       "review-*": "proj-review",
       literal: "proj-literal",
     });
+  });
+});
+
+describe("configuration API endpoint resolution", () => {
+  test("prefers HINDSIGHT_API_URL over legacy env and config values", () => {
+    expect(
+      resolveBaseUrl(
+        { baseUrl: "http://config.example" },
+        {
+          HINDSIGHT_API_URL: " http://api.example ",
+          HINDSIGHT_BASE_URL: "http://legacy.example",
+        },
+      ),
+    ).toBe("http://api.example");
+  });
+
+  test("falls back to HINDSIGHT_BASE_URL and config baseUrl", () => {
+    expect(
+      resolveBaseUrl(
+        { baseUrl: "http://config.example" },
+        { HINDSIGHT_BASE_URL: " http://legacy.example " },
+      ),
+    ).toBe("http://legacy.example");
+
+    expect(resolveBaseUrl({ baseUrl: " http://config.example " }, {})).toBe("http://config.example");
+  });
+});
+
+describe("configuration API key resolution", () => {
+  test("prefers HINDSIGHT_API_KEY over tenant env and config values", () => {
+    expect(
+      resolveApiKey(
+        { apiKey: "config-key" },
+        {
+          HINDSIGHT_API_KEY: " env-key ",
+          HINDSIGHT_API_TENANT_API_KEY: "tenant-key",
+        },
+      ),
+    ).toBe("env-key");
+  });
+
+  test("falls back to tenant env and config apiKey env references", () => {
+    expect(
+      resolveApiKey(
+        { apiKey: "config-key" },
+        { HINDSIGHT_API_TENANT_API_KEY: " tenant-key " },
+      ),
+    ).toBe("tenant-key");
+
+    expect(
+      resolveApiKey(
+        { apiKey: "$OPENCODE_HINDSIGHT_API_KEY" },
+        { OPENCODE_HINDSIGHT_API_KEY: " referenced-key " },
+      ),
+    ).toBe("referenced-key");
+  });
+
+  test("treats empty API key values as unset", () => {
+    expect(resolveApiKey({ apiKey: "   " }, {})).toBeUndefined();
+    expect(
+      resolveApiKey(
+        { apiKey: "$MISSING_HINDSIGHT_API_KEY" },
+        { HINDSIGHT_API_KEY: "  ", HINDSIGHT_API_TENANT_API_KEY: "  " },
+      ),
+    ).toBeUndefined();
   });
 });
