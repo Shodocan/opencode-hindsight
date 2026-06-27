@@ -52,9 +52,13 @@ export class HindsightClientWrapper {
       if (!isConfigured()) {
         throw new Error("Hindsight baseUrl not configured");
       }
-      log("client: creating HindsightClient", { baseUrl: CONFIG.baseUrl });
-      this.client = new HindsightClient({ 
-        baseUrl: CONFIG.baseUrl 
+      log("client: creating HindsightClient", {
+        baseUrl: CONFIG.baseUrl,
+        hasApiKey: !!CONFIG.apiKey,
+      });
+      this.client = new HindsightClient({
+        baseUrl: CONFIG.baseUrl,
+        ...(CONFIG.apiKey ? { apiKey: CONFIG.apiKey } : {}),
       });
     }
     return this.client;
@@ -181,7 +185,12 @@ export class HindsightClientWrapper {
     log("deleteMemory: start", { bank, memoryId });
     try {
       const url = `${CONFIG.baseUrl}/v1/default/banks/${bank}/memories/${memoryId}/observations`;
-      const response = await fetch(url, { method: "DELETE" });
+      const response = await fetch(url, {
+        method: "DELETE",
+        ...(CONFIG.apiKey
+          ? { headers: { Authorization: `Bearer ${CONFIG.apiKey}` } }
+          : {}),
+      });
       if (!response.ok) {
         const text = await response.text();
         log("deleteMemory: http error", { status: response.status, body: text });
