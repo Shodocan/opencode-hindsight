@@ -11,6 +11,7 @@ const CONFIG_FILES = [
 
 interface HindsightConfig {
   baseUrl?: string;
+  apiKey?: string;
   similarityThreshold?: number;
   maxMemories?: number;
   maxProjectMemories?: number;
@@ -53,7 +54,7 @@ const DEFAULT_KEYWORD_PATTERNS = [
   "存下来",
 ];
 
-const DEFAULTS: Required<Omit<HindsightConfig, "userBank" | "projectBank" | "baseUrl" | "agentProjectBanks" | "runtimeProjectBanks">> = {
+const DEFAULTS: Required<Omit<HindsightConfig, "userBank" | "projectBank" | "baseUrl" | "apiKey" | "agentProjectBanks" | "runtimeProjectBanks">> = {
   similarityThreshold: 0.6,
   maxMemories: 5,
   maxProjectMemories: 20,
@@ -102,11 +103,36 @@ const fileConfig = loadConfig();
 
 const ENV_REF_RE = /^\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})$/;
 
-function getBaseUrl(): string {
-  // Priority: env var > config file > default
-  if (process.env.HINDSIGHT_BASE_URL) return process.env.HINDSIGHT_BASE_URL;
-  if (fileConfig.baseUrl) return fileConfig.baseUrl;
+export function resolveBaseUrl(
+  config: Pick<HindsightConfig, "baseUrl"> = fileConfig,
+  env: Record<string, string | undefined> = process.env,
+): string {
+  // Priority: current env var > legacy env var > config file > default.
+  const apiUrl = env.HINDSIGHT_API_URL?.trim();
+  if (apiUrl) return apiUrl;
+
+  const baseUrl = env.HINDSIGHT_BASE_URL?.trim();
+  if (baseUrl) return baseUrl;
+
+  if (typeof config.baseUrl === "string") {
+    const configured = config.baseUrl.trim();
+    if (configured) return configured;
+  }
+
   return 'http://localhost:8888';
+}
+
+export function resolveApiKey(
+  config: Pick<HindsightConfig, "apiKey"> = fileConfig,
+  env: Record<string, string | undefined> = process.env,
+): string | undefined {
+  const apiKey = env.HINDSIGHT_API_KEY?.trim();
+  if (apiKey) return apiKey;
+
+  const tenantApiKey = env.HINDSIGHT_API_TENANT_API_KEY?.trim();
+  if (tenantApiKey) return tenantApiKey;
+
+  return sanitizeBankValue(config.apiKey, env);
 }
 
 /**
@@ -154,7 +180,8 @@ export function sanitizeBankMap(
 }
 
 export const CONFIG = {
-  baseUrl: getBaseUrl(),
+  baseUrl: resolveBaseUrl(fileConfig),
+  apiKey: resolveApiKey(fileConfig),
   similarityThreshold: fileConfig.similarityThreshold ?? DEFAULTS.similarityThreshold,
   maxMemories: fileConfig.maxMemories ?? DEFAULTS.maxMemories,
   maxProjectMemories: fileConfig.maxProjectMemories ?? DEFAULTS.maxProjectMemories,

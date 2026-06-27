@@ -183,11 +183,12 @@ function generatedProjectBank(directory: string): string {
 /**
  * Pure per-call bank resolver implementing project bank precedence:
  *
- *   1. `HINDSIGHT_PROJECT_BANK_ID` env var
- *   2. `HINDSIGHT_BANK_ID` env var (legacy fallback)
- *   3. Runtime project bank alias (`projectBankAlias` resolved against
+ *   1. Exact / glob `agentProjectBanks` match for `agent`
+ *      (matched agents are isolated from env and alias overrides)
+ *   2. `HINDSIGHT_PROJECT_BANK_ID` env var
+ *   3. `HINDSIGHT_BANK_ID` env var (legacy fallback)
+ *   4. Runtime project bank alias (`projectBankAlias` resolved against
  *      `runtimeProjectBanks`)
- *   4. Exact / glob `agentProjectBanks` match for `agent`
  *   5. `projectBank` from config (explicit fallback)
  *   6. Generated `p_<project>_<hash>` fallback
  *
@@ -209,10 +210,21 @@ export function resolveBanks(
   let matchedAlias: string | undefined;
   let matchedAgentPattern: string | undefined;
 
+  // 1. Agent exact/glob match. This must run before env and alias resolution so
+  // review-routed agents cannot be redirected to a main/user bank by wrapper env
+  // variables or runtime bank aliases.
+  const agentMatch = matchAgentBank(input.agent, cfgAgentBanks);
+  if (agentMatch !== undefined) {
+    project = agentMatch.bank;
+    projectSource = "agentProjectBanks";
+    matchedAgent = input.agent;
+    matchedAgentPattern = agentMatch.pattern;
+  }
+
   const alias = input.projectBankAlias?.trim() || undefined;
   let runtimeAliasBank: string | undefined;
 
-  if (alias !== undefined) {
+  if (project === undefined && alias !== undefined) {
     const hasAlias = Object.prototype.hasOwnProperty.call(cfgRuntimeBanks, alias);
     const resolved = hasAlias ? cfgRuntimeBanks[alias] : undefined;
     if (typeof resolved !== "string" || !resolved.trim()) {
@@ -221,34 +233,23 @@ export function resolveBanks(
     runtimeAliasBank = resolved.trim();
   }
 
-  // 1. HINDSIGHT_PROJECT_BANK_ID
+  // 2. HINDSIGHT_PROJECT_BANK_ID
   if (project === undefined && env.HINDSIGHT_PROJECT_BANK_ID) {
     project = env.HINDSIGHT_PROJECT_BANK_ID;
     projectSource = "env:HINDSIGHT_PROJECT_BANK_ID";
   }
 
-  // 2. HINDSIGHT_BANK_ID (legacy)
+  // 3. HINDSIGHT_BANK_ID (legacy)
   if (project === undefined && env.HINDSIGHT_BANK_ID) {
     project = env.HINDSIGHT_BANK_ID;
     projectSource = "env:HINDSIGHT_BANK_ID";
   }
 
-  // 3. Runtime project bank alias
+  // 4. Runtime project bank alias
   if (project === undefined && alias !== undefined && runtimeAliasBank !== undefined) {
     project = runtimeAliasBank;
     projectSource = "runtimeProjectBanks";
     matchedAlias = alias;
-  }
-
-  // 4. Agent exact/glob match
-  if (project === undefined) {
-    const agentMatch = matchAgentBank(input.agent, cfgAgentBanks);
-    if (agentMatch !== undefined) {
-      project = agentMatch.bank;
-      projectSource = "agentProjectBanks";
-      matchedAgent = input.agent;
-      matchedAgentPattern = agentMatch.pattern;
-    }
   }
 
   // 5. CONFIG.projectBank / explicit projectBank fallback

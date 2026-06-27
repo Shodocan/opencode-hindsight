@@ -255,7 +255,7 @@ describe("resolveBanks — agent-aware project bank routing", () => {
   });
 
   describe("env precedence", () => {
-    it("HINDSIGHT_PROJECT_BANK_ID overrides config and agent banks", () => {
+    it("matched agent banks override HINDSIGHT_PROJECT_BANK_ID", () => {
       const result = resolveBanks(
         {
           directory: "/home/user/projects/my-app",
@@ -275,10 +275,10 @@ describe("resolveBanks — agent-aware project bank routing", () => {
           },
         },
       );
-      expect(result.project).toBe("runtime-override-bank");
+      expect(result.project).toBe("agent-bank");
     });
 
-    it("reports projectSource 'env:HINDSIGHT_PROJECT_BANK_ID' with no agent metadata", () => {
+    it("reports projectSource 'agentProjectBanks' when env is present for a matched agent", () => {
       const result = resolveBanks(
         {
           directory: "/home/user/projects/my-app",
@@ -298,10 +298,35 @@ describe("resolveBanks — agent-aware project bank routing", () => {
           },
         },
       );
-      expect(result.projectSource).toBe("env:HINDSIGHT_PROJECT_BANK_ID");
-      expect(result.agent).toBeUndefined();
-      expect(result.agentPattern).toBeUndefined();
+      expect(result.projectSource).toBe("agentProjectBanks");
+      expect(result.agent).toBe("code-small");
+      expect(result.agentPattern).toBe("code-small");
       expect(result.projectBankAlias).toBeUndefined();
+    });
+
+    it("uses HINDSIGHT_PROJECT_BANK_ID when no agent bank matches", () => {
+      const result = resolveBanks(
+        {
+          directory: "/home/user/projects/my-app",
+          agent: "unmatched-agent",
+        },
+        {
+          ...baseOptions,
+          config: {
+            ...baseOptions.config,
+            projectBank: "config-bank",
+            agentProjectBanks: {
+              "code-small": "agent-bank",
+            },
+          },
+          env: {
+            HINDSIGHT_PROJECT_BANK_ID: "runtime-override-bank",
+          },
+        },
+      );
+
+      expect(result.project).toBe("runtime-override-bank");
+      expect(result.projectSource).toBe("env:HINDSIGHT_PROJECT_BANK_ID");
     });
   });
 
@@ -324,6 +349,35 @@ describe("resolveBanks — agent-aware project bank routing", () => {
           },
         ),
       ).toThrow(/Unknown runtime project bank alias/);
+    });
+
+    it("ignores unknown aliases for matched agent banks", () => {
+      const result = resolveBanks(
+        {
+          directory: "/home/user/projects/my-app",
+          agent: "review-bug-hunter",
+          projectBankAlias: "unknown-alias",
+        },
+        {
+          ...baseOptions,
+          config: {
+            ...baseOptions.config,
+            agentProjectBanks: {
+              "review-*": "review-bank",
+            },
+            runtimeProjectBanks: {
+              main: "main-bank",
+            },
+          },
+          env: {
+            HINDSIGHT_PROJECT_BANK_ID: "main-env-bank",
+          },
+        },
+      );
+
+      expect(result.project).toBe("review-bank");
+      expect(result.projectSource).toBe("agentProjectBanks");
+      expect(result.projectBankAlias).toBeUndefined();
     });
 
     it("throws for unknown aliases before applying env project bank overrides", () => {
@@ -474,7 +528,31 @@ describe("resolveBanks — agent-aware project bank routing", () => {
   });
 
   describe("HINDSIGHT_PROJECT_BANK_ID precedence", () => {
-    it("takes priority over HINDSIGHT_BANK_ID, config, and agent banks", () => {
+    it("takes priority over HINDSIGHT_BANK_ID and config when no agent bank matches", () => {
+      const result = resolveBanks(
+        {
+          directory: "/home/user/projects/my-app",
+          agent: "unmatched-agent",
+        },
+        {
+          ...baseOptions,
+          config: {
+            ...baseOptions.config,
+            projectBank: "config-bank",
+            agentProjectBanks: {
+              "code-small": "agent-bank",
+            },
+          },
+          env: {
+            HINDSIGHT_PROJECT_BANK_ID: "primary-env-bank",
+            HINDSIGHT_BANK_ID: "legacy-env-bank",
+          },
+        },
+      );
+      expect(result.project).toBe("primary-env-bank");
+    });
+
+    it("does not override a matched agent bank", () => {
       const result = resolveBanks(
         {
           directory: "/home/user/projects/my-app",
@@ -495,7 +573,8 @@ describe("resolveBanks — agent-aware project bank routing", () => {
           },
         },
       );
-      expect(result.project).toBe("primary-env-bank");
+      expect(result.project).toBe("agent-bank");
+      expect(result.projectSource).toBe("agentProjectBanks");
     });
   });
 
@@ -519,7 +598,7 @@ describe("resolveBanks — agent-aware project bank routing", () => {
       expect(result.project).toBe("legacy-env-bank");
     });
 
-    it("HINDSIGHT_BANK_ID overrides agent banks but not HINDSIGHT_PROJECT_BANK_ID", () => {
+    it("HINDSIGHT_BANK_ID does not override matched agent banks", () => {
       const result = resolveBanks(
         {
           directory: "/home/user/projects/my-app",
@@ -538,7 +617,8 @@ describe("resolveBanks — agent-aware project bank routing", () => {
           },
         },
       );
-      expect(result.project).toBe("legacy-env-bank");
+      expect(result.project).toBe("agent-bank");
+      expect(result.projectSource).toBe("agentProjectBanks");
     });
   });
 
@@ -611,11 +691,11 @@ describe("resolveBanks — agent-aware project bank routing", () => {
       expect(result.agentPattern).toBeUndefined();
     });
 
-    it("projectBankAlias loses to env vars but beats agent banks", () => {
+    it("projectBankAlias loses to env vars when no agent bank matches", () => {
       const result = resolveBanks(
         {
           directory: "/home/user/projects/my-app",
-          agent: "code-small",
+          agent: "unmatched-agent",
           projectBankAlias: "my-alias",
         },
         {
@@ -637,7 +717,7 @@ describe("resolveBanks — agent-aware project bank routing", () => {
       expect(result.project).toBe("legacy-env-bank");
     });
 
-    it("projectBankAlias beats agent banks and config.projectBank", () => {
+    it("matched agent banks beat projectBankAlias and config.projectBank", () => {
       const result = resolveBanks(
         {
           directory: "/home/user/projects/my-app",
@@ -658,7 +738,35 @@ describe("resolveBanks — agent-aware project bank routing", () => {
           },
         },
       );
+      expect(result.project).toBe("agent-bank");
+      expect(result.projectSource).toBe("agentProjectBanks");
+      expect(result.projectBankAlias).toBeUndefined();
+    });
+
+    it("projectBankAlias beats config.projectBank when no agent bank matches", () => {
+      const result = resolveBanks(
+        {
+          directory: "/home/user/projects/my-app",
+          agent: "unmatched-agent",
+          projectBankAlias: "my-alias",
+        },
+        {
+          ...baseOptions,
+          config: {
+            ...baseOptions.config,
+            projectBank: "config-bank",
+            agentProjectBanks: {
+              "code-small": "agent-bank",
+            },
+            runtimeProjectBanks: {
+              "my-alias": "alias-bank",
+            },
+          },
+        },
+      );
+
       expect(result.project).toBe("alias-bank");
+      expect(result.projectSource).toBe("runtimeProjectBanks");
     });
   });
 });
