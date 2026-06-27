@@ -6,6 +6,8 @@ sidebar_position: 2
 
 Official TypeScript/JavaScript client for the Hindsight API. Supports **Node.js** and **Deno**.
 
+> Reference note: this file mirrors the upstream `@vectorize-io/hindsight-client` SDK surface used internally by `@shodocan/opencode-hindsight`. It is not the OpenCode plugin usage guide; see the repository `README.md` for plugin installation, configuration, and the `hindsight(mode: ...)` OpenCode tool.
+
 ## Installation
 
 ### Node.js

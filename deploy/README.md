@@ -16,7 +16,7 @@ This setup configures Hindsight to use DeepSeek's reasoning model via OpenAI-com
 ### Ports
 
 - `8888`: Hindsight web interface
-- `9999`: Additional service port
+- `9999`: Additional Hindsight service port exposed by the upstream container
 
 ### Volumes
 
@@ -27,6 +27,9 @@ This setup configures Hindsight to use DeepSeek's reasoning model via OpenAI-com
 ### Start Services
 
 ```bash
+cp .env.example .env
+chmod 600 .env
+# Edit .env and set HINDSIGHT_API_LLM_API_KEY before starting.
 docker compose up -d
 ```
 
@@ -50,7 +53,8 @@ docker compose down -v
 
 ## Notes
 
-1. The container runs with `stdin_open: true` and `tty: true` for interactive sessions
-2. Restart policy is set to "no" (do not restart automatically)
-3. Image pull policy is "always" to ensure latest version
-4. Ensure your DeepSeek API key has sufficient credits for model usage
+1. Restart policy is `always`, matching `docker-compose.yml`
+2. Image pull policy is `if_not_present`; pull manually when you want to refresh `latest`
+3. The compose file mounts local ModelScope model paths under `/data/.cache/modelscope/...`; update those bind mounts if your models live elsewhere
+4. The compose file sets DNS servers to `8.8.8.8` and `1.1.1.1`; adjust them if your environment requires internal DNS
+5. Ensure your DeepSeek API key has sufficient credits for model usage

@@ -12,7 +12,7 @@ Compared to the vanilla `opencode-hindsight` plugin, this distribution adds:
 
 - **Agent-aware project bank routing** — subagents and the main agent use separate project banks via `agentProjectBanks` (exact name and `*` glob patterns), so review agents and build agents keep their memories isolated.
 - **Runtime bank aliases** — `runtimeProjectBanks` defines allowlisted per-tool-call bank aliases (`bankAlias`) so an agent can query other projects' banks in a single call without reconfiguration.
-- **Trusted tool-context routing** — project bank precedence chain (`HINDSIGHT_PROJECT_BANK_ID` → `HINDSIGHT_BANK_ID` → `runtimeProjectBanks` alias → `agentProjectBanks` match → `projectBank` → generated bank) ensures predictable routing for every tool call.
+- **Trusted tool-context routing** — project bank precedence chain (`agentProjectBanks` match → `HINDSIGHT_PROJECT_BANK_ID` → `HINDSIGHT_BANK_ID` → `runtimeProjectBanks` alias → `projectBank` → generated bank) ensures predictable routing for every tool call.
 - **Compaction memory routing** — when OpenCode context hits the compaction threshold, project memories are injected into the summary context and the session summary is saved as a memory, preserving context across compaction events.
 - **Privacy-safe logging** — content wrapped in `<private>` tags is never stored in Hindsight memory; structured logging keeps plugin operations visible without leaking user data.
 - **Offline / Chinese deployment notes** — the Quick Start section documents Huawei SWR mirror pull commands for `ghcr.io`-blocked regions and local model mounting for air-gapped deployments.
@@ -30,8 +30,10 @@ This project includes a ready-to-use Docker Compose configuration in the `deploy
 # Navigate to the deploy directory
 cd deploy/
 
-# Create .env file with your DeepSeek API key
-echo "HINDSIGHT_API_LLM_API_KEY=your-deepseek-api-key-here" > .env
+# Create .env file from the template, restrict permissions, then edit it
+cp .env.example .env
+chmod 600 .env
+${EDITOR:-nano} .env
 
 # Start Hindsight server
 docker compose up -d
@@ -40,6 +42,7 @@ docker compose up -d
 **Configuration Notes:**
 - The Docker Compose setup uses DeepSeek's reasoning model (`deepseek-reasoner`) by default
 - You need a valid DeepSeek API key from [DeepSeek Platform](https://platform.deepseek.com/)
+- The DeepSeek key is a Hindsight backend LLM key (`HINDSIGHT_API_LLM_API_KEY`), not the plugin's Hindsight API auth key (`HINDSIGHT_API_KEY`)
 - The configuration includes persistent volume mounting at `~/.hindsight-docker`
 - Server runs on port 8888 (web interface) and 9999 (additional service)
 
@@ -142,18 +145,26 @@ This will:
 
 If your Hindsight server is not running on `localhost:8888`, configure the connection:
 
-**Using environment variable:**
+**Using environment variables:**
 ```bash
-export HINDSIGHT_BASE_URL="http://localhost:8888"
+export HINDSIGHT_API_URL="http://localhost:8888"
+
+# Optional, only needed if your Hindsight server requires API auth
+export HINDSIGHT_API_KEY="your-hindsight-api-key"
 ```
+
+`HINDSIGHT_BASE_URL` remains supported as a legacy fallback for `HINDSIGHT_API_URL`.
 
 **Using configuration file:**
 Create `~/.config/opencode/hindsight.jsonc`:
 ```jsonc
 {
-  "baseUrl": "http://localhost:8888"
+  "baseUrl": "http://localhost:8888",
+  "apiKey": "$HINDSIGHT_API_KEY"
 }
 ```
+
+If the config file contains credentials or internal service names, restrict it with `chmod 600 ~/.config/opencode/hindsight.jsonc`.
 
 ### 4. Restart and Verify
 
@@ -189,7 +200,10 @@ Add the plugin entry to `~/.config/opencode/opencode.json`:
 Hindsight runs locally on port 8888 by default. If you need to connect to a different server, set the base URL:
 
 ```bash
-export HINDSIGHT_BASE_URL="http://localhost:8888"
+export HINDSIGHT_API_URL="http://localhost:8888"
+
+# Optional, only for authenticated Hindsight servers
+export HINDSIGHT_API_KEY="your-hindsight-api-key"
 ```
 
 **Or let your agent do it** — paste this into OpenCode:
@@ -259,14 +273,18 @@ Save to `~/.config/opencode/opencode.json`.
 Hindsight runs locally on port 8888 by default. If you need to connect to a different server, set the base URL:
 
 ```bash
-export HINDSIGHT_BASE_URL="http://localhost:8888"
+export HINDSIGHT_API_URL="http://localhost:8888"
+
+# Optional, only for authenticated Hindsight servers
+export HINDSIGHT_API_KEY="your-hindsight-api-key"
 ```
 
 Or create `~/.config/opencode/hindsight.jsonc`:
 
 ```jsonc
 {
-  "baseUrl": "http://localhost:8888" // Optional, defaults to localhost:8888
+  "baseUrl": "http://localhost:8888", // Optional, defaults to localhost:8888
+  "apiKey": "$HINDSIGHT_API_KEY" // Optional; env refs are expanded when they are the full value
 }
 ```
 
@@ -286,6 +304,8 @@ They should see `hindsight` in the tools list. If not, check:
 2. Is the plugin in `opencode.json`?
 3. Check logs: `tail ~/.opencode-hindsight.log`
 
+If the config file contains credentials or internal endpoints, set restrictive permissions: `chmod 600 ~/.config/opencode/hindsight.jsonc`.
+
 #### Step 5: Initialize codebase memory (optional)
 
 Run `/hindsight-init` to have the agent explore and memorize the codebase.
@@ -298,8 +318,8 @@ Run `/hindsight-init` to have the agent explore and memorize the codebase.
 
 Context injection happens automatically when the user sends the **first message** of a new session — not when OpenCode starts up. The mechanism works as follows:
 
-1. **Detection**: The `chat.message` hook checks whether the current session ID has been seen before via an in-memory `injectedSessions` Set
-2. **First message only**: If the session ID is not in the Set, it's added immediately (preventing double-injection on subsequent messages in the same session)
+1. **Detection**: The `chat.message` hook checks whether the current session/project-bank pair has already received injected context via an in-memory Set
+2. **First message per session/project bank only**: If the key is not in the Set, it's added immediately (preventing double-injection on subsequent messages in the same session)
 3. **Three parallel API calls** are made using the user's message as the search query:
    - `getProfile(banks.user, userMessage)` — retrieves cross-project user profile facts via semantic search
    - `searchMemories(userMessage, banks.user)` — retrieves relevant user-scoped memories via semantic search
@@ -332,6 +352,8 @@ Relevant Memories:
 ```
 
 The agent uses this context automatically — no manual prompting needed.
+
+Injected memories are visible to the AI model in the session context. Do not store raw secrets in Hindsight memory; wrap sensitive text in `<private>...</private>` so the plugin strips it before storage.
 
 ### Keyword Detection
 
@@ -370,17 +392,22 @@ Content in `<private>` tags is never stored.
 
 The `hindsight` tool is available to the agent:
 
-| Mode      | Args                         | Description       |
-| --------- | ---------------------------- | ----------------- |
-| `add`     | `content`, `type?`, `scope?` | Store memory (asynchronous) |
-| `search`  | `query`, `scope?`            | Search memories   |
-| `profile` | `query?`                     | View user profile |
-| `list`    | `scope?`, `limit?`           | List memories     |
-| `forget`  | `memoryId`, `scope?`         | Delete memory     |
+| Mode      | Args                                      | Description       |
+| --------- | ----------------------------------------- | ----------------- |
+| `add`     | `content`, `type?`, `scope?`, `bankAlias?` | Store memory (asynchronous) |
+| `search`  | `query`, `scope?`, `limit?`, `bankAlias?` | Search memories   |
+| `profile` | `query?`                                  | View user profile |
+| `list`    | `scope?`, `limit?`, `bankAlias?`          | List memories     |
+| `forget`  | `memoryId`, `scope?`, `bankAlias?`        | Delete memory     |
+| `help`    | none                                      | Show tool usage and configured aliases |
 
 **Scopes:** `user` (cross-project), `project` (default)
 
 **Types:** `project-config`, `architecture`, `error-solution`, `preference`, `learned-pattern`, `conversation`
+
+**Naming note:** The OpenCode tool name is exactly `hindsight`. Always call it with a `mode` parameter, for example `hindsight(mode: "search", query: "auth flow")`. Do not call `hindsight_search`, `hindsight_recall`, `hindsight_retain`, or other split tool names.
+
+**Bank aliases:** `bankAlias?` only works for project-scoped operations and only for aliases explicitly configured in `runtimeProjectBanks`. It is rejected for `scope: "user"`, `profile`, and `help`.
 
 ### Important Notes:
 - **`add` operation is asynchronous by default** to prevent timeouts during memory processing
@@ -390,35 +417,23 @@ The `hindsight` tool is available to the agent:
 
 ### Example Usage
 
-```javascript
-// Store a project-specific configuration
-hindsight({
-  mode: "add",
-  content: "This project uses Bun for package management and TypeScript for type safety",
-  type: "project-config",
-  scope: "project"
-})
+```text
+# Store a project-specific configuration
+hindsight(mode: "add", content: "This project uses Bun for package management and TypeScript for type safety", type: "project-config", scope: "project")
 
-// Search for relevant memories
-hindsight({
-  mode: "search",
-  query: "package manager",
-  scope: "project",
-  limit: 5
-})
+# Search for relevant memories
+hindsight(mode: "search", query: "package manager", scope: "project", limit: 5)
 
-// View user profile (cross-project preferences)
-hindsight({
-  mode: "profile"
-})
+# View user profile (cross-project preferences)
+hindsight(mode: "profile")
 ```
 
 ## Memory Scoping
 
-| Scope   | Tag                                    | Persists     |
-| ------- | -------------------------------------- | ------------ |
-| User    | `hindsight_user_{sha256(git email)}`    | All projects |
-| Project | `hindsight_project_{sha256(directory)}` | This project |
+| Scope   | Generated bank name                     | Persists     |
+| ------- | --------------------------------------- | ------------ |
+| User    | `{bankPrefix}_user_{sha256-16(git email or username)}` | All projects |
+| Project | `p_{directory_basename}_{sha256-16(directory)}` | This project |
 
 ## Configuration
 
@@ -429,14 +444,17 @@ Create `~/.config/opencode/hindsight.jsonc` or `~/.config/opencode/hindsight.jso
   // Hindsight server URL (default: http://localhost:8888)
   "baseUrl": "http://localhost:8888",
 
+  // Optional: API key for authenticated Hindsight servers
+  "apiKey": "$HINDSIGHT_API_KEY",
+
   // Min similarity for memory retrieval (0-1, default: 0.6)
   "similarityThreshold": 0.6,
 
   // Max memories injected per request (default: 5)
   "maxMemories": 5,
 
-  // Max project memories listed (default: 10)
-  "maxProjectMemories": 10,
+  // Max project memories listed (default: 20)
+  "maxProjectMemories": 20,
 
   // Max profile facts injected (default: 5)
   "maxProfileItems": 5,
@@ -485,23 +503,31 @@ All fields optional.
 
 The following environment variables take precedence over configuration file settings:
 
-- `HINDSIGHT_BASE_URL`: Hindsight server URL (e.g., `http://localhost:8888`)
-  - **Priority**: Highest — overrides config file and defaults
+- `HINDSIGHT_API_URL`: Hindsight server URL (e.g., `http://localhost:8888`)
+  - **Priority**: Highest URL setting — overrides `HINDSIGHT_BASE_URL`, config file, and defaults
   - **Use case**: Different servers for development/production, docker containers
+- `HINDSIGHT_BASE_URL`: Legacy fallback for `HINDSIGHT_API_URL`
+- `HINDSIGHT_API_KEY`: API key for authenticated Hindsight servers
+  - **Priority**: Highest API key setting — overrides `HINDSIGHT_API_TENANT_API_KEY` and config `apiKey`
+- `HINDSIGHT_API_TENANT_API_KEY`: Legacy tenant API key fallback
+
+Do not confuse the plugin API key above with the Hindsight server's LLM provider key (`HINDSIGHT_API_LLM_API_KEY`) used by the Docker Compose backend.
 
 Configuration loading order (highest to lowest priority):
-1. Environment variables
-2. Configuration file (`hindsight.jsonc` or `hindsight.json`)
-3. Default values
+1. URL: `HINDSIGHT_API_URL` → `HINDSIGHT_BASE_URL` → config `baseUrl` → `http://localhost:8888`
+2. API key: `HINDSIGHT_API_KEY` → `HINDSIGHT_API_TENANT_API_KEY` → config `apiKey` → unset
+3. Other settings: configuration file (`hindsight.jsonc` or `hindsight.json`) → default values
 
 Project bank precedence (highest to lowest):
 
-1. `HINDSIGHT_PROJECT_BANK_ID`
-2. `HINDSIGHT_BANK_ID`
-3. allowlisted `bankAlias` from `runtimeProjectBanks`
-4. matching `agentProjectBanks` exact/glob entry
+1. matching `agentProjectBanks` exact/glob entry
+2. `HINDSIGHT_PROJECT_BANK_ID`
+3. `HINDSIGHT_BANK_ID`
+4. allowlisted `bankAlias` from `runtimeProjectBanks`
 5. `projectBank`
 6. generated `p_<project>_<hash>` bank
+
+Matched agent banks are intentionally isolated from environment and `bankAlias` overrides so subagents cannot be silently rerouted into another project bank.
 
 ### Configuration Notes:
 - **File format**: Both `.jsonc` (with comments) and `.json` formats are supported
@@ -514,12 +540,13 @@ Project bank precedence (highest to lowest):
 
 ### Bank Selection
 
-By default, banks are auto-generated using `bankPrefix` plus a SHA-256 hash:
+By default, banks are auto-generated with deterministic SHA-256 hashes (first 16 hex characters):
 
 - **User bank**: `{prefix}_user_{sha256(git_email)}`
   - Uses git user.email if available, otherwise falls back to system username
-- **Project bank**: `{prefix}_project_{sha256(project_directory)}`
+- **Project bank**: `p_{directory_basename}_{sha256(project_directory)}`
   - Uses the absolute path of the current working directory
+  - The generated project bank uses the hardcoded `p_` prefix; `bankPrefix` applies to generated user banks only
 
 You can override this by specifying exact bank names:
 
@@ -664,6 +691,12 @@ echo '{"plugin": ["file://'$(pwd)'"]}' > ~/.config/opencode/opencode.json
      - Verify plugin is in `~/.config/opencode/opencode.json`
      - Restart OpenCode after configuration changes
      - Check Hindsight server is running: `curl http://localhost:8888/health`
+   - **Tool health check**:
+     ```bash
+     och run --agent operator -m opencode-route/qwen3.6-27b \
+       "Call the tool named exactly hindsight with arguments mode='search', scope='project', query='manual hindsight health check', limit=1. Do not use hindsight_recall or any other tool name. Report only success or failure, without memory contents."
+     ```
+     Expected: a completed tool call named exactly `hindsight`. `No tool named hindsight` means the plugin did not load; `Authentication failed` means the plugin loaded but Hindsight API credentials are wrong.
 
 3. **Metadata not saving correctly**
    - **Cause**: Hindsight API requires all metadata values to be strings
@@ -687,6 +720,9 @@ echo '{"plugin": ["file://'$(pwd)'"]}' > ~/.config/opencode/opencode.json
 ```bash
 # Plugin logs
 tail -f ~/.opencode-hindsight.log
+
+# Restrict the log if it contains sensitive queries, bank names, or local paths
+chmod 600 ~/.opencode-hindsight.log
 
 # Hindsight server logs (if running locally)
 # Check your Hindsight server documentation for log location

@@ -21,9 +21,10 @@ Shodocan 版本增加了 agent 感知的项目 bank 路由、运行时 bank alia
 # 进入 deploy 目录
 cd deploy/
 
-# 创建 .env 文件并设置您的 DeepSeek API 密钥
-echo "HINDSIGHT_API_LLM_API_KEY=您的-deepseek-api-密钥" > .env
-# 或者手动创建 .env 文件并设置 API 密钥
+# 从模板创建 .env，限制权限，然后手动编辑 API 密钥
+cp .env.example .env
+chmod 600 .env
+${EDITOR:-nano} .env
 
 # 启动 Hindsight 服务器
 docker compose up -d
@@ -32,6 +33,7 @@ docker compose up -d
 **配置说明：**
 - Docker Compose 设置默认使用 DeepSeek 的推理模型 (`deepseek-reasoner`)
 - 您需要从 [DeepSeek 平台](https://platform.deepseek.com/) 获取有效的 API 密钥
+- DeepSeek 密钥是 Hindsight 后端的 LLM 密钥 (`HINDSIGHT_API_LLM_API_KEY`)，不是插件连接 Hindsight API 的鉴权密钥 (`HINDSIGHT_API_KEY`)
 - 配置包含持久化卷挂载在 `~/.hindsight-docker`
 - 服务器运行在端口 8888（Web 界面）和 9999（附加服务）
 
@@ -118,16 +120,24 @@ echo '{"plugin": ["file://'$(pwd)'"]}' > ~/.config/opencode/opencode.json
 
 **使用环境变量：**
 ```bash
-export HINDSIGHT_BASE_URL="http://localhost:8888"
+export HINDSIGHT_API_URL="http://localhost:8888"
+
+# 可选：仅在 Hindsight 服务器需要 API 鉴权时设置
+export HINDSIGHT_API_KEY="your-hindsight-api-key"
 ```
+
+`HINDSIGHT_BASE_URL` 仍作为 `HINDSIGHT_API_URL` 的旧版 fallback 支持。
 
 **使用配置文件：**
 创建 `~/.config/opencode/hindsight.jsonc`：
 ```jsonc
 {
-  "baseUrl": "http://localhost:8888"
+  "baseUrl": "http://localhost:8888",
+  "apiKey": "$HINDSIGHT_API_KEY"
 }
 ```
+
+如果配置文件包含凭据或内部服务地址，请限制权限：`chmod 600 ~/.config/opencode/hindsight.jsonc`。
 
 ### 4. 重启并验证
 
@@ -140,7 +150,7 @@ opencode -c  # 应在可用工具中显示 'hindsight'
 **测试插件：**
 重启 OpenCode 后，请让 agent 保存一条测试记忆；如果您的 OpenCode UI 支持直接调用工具，也可以使用会话内的 `hindsight` 工具。`hindsight` 是 OpenCode agent 工具，不是 `opencode-hindsight` 终端命令。
 
-高级 bank 路由配置（`agentProjectBanks`、`runtimeProjectBanks`、`bankAlias`、优先级链）请参考英文 README 的 “Agent-Aware Project Banks” 和 “Runtime Bank Aliases” 部分。
+高级 bank 路由配置（`agentProjectBanks`、`runtimeProjectBanks`、`bankAlias`）请参考英文 README 的 “Agent-Aware Project Banks” 和 “Runtime Bank Aliases” 部分。项目 bank 选择优先级为：匹配的 `agentProjectBanks` → `HINDSIGHT_PROJECT_BANK_ID` → `HINDSIGHT_BANK_ID` → allowlisted `bankAlias`/`runtimeProjectBanks` → `projectBank` → 自动生成的 `p_<project>_<hash>`。
 
 ## 功能特性
 
@@ -148,8 +158,8 @@ opencode -c  # 应在可用工具中显示 'hindsight'
 
 上下文注入在用户发送**新会话的第一条消息**时自动触发 — 而不是在 OpenCode 启动时。机制如下：
 
-1. **检测**：`chat.message` hook 通过内存中的 `injectedSessions` Set 检查当前会话 ID 是否已见过
-2. **仅首条消息**：如果会话 ID 不在 Set 中，立即标记（防止同一会话后续消息重复注入）
+1. **检测**：`chat.message` hook 通过内存中的 Set 检查当前会话/项目 bank 组合是否已注入过上下文
+2. **每个会话/项目 bank 仅首条消息**：如果 key 不在 Set 中，立即标记（防止同一会话后续消息重复注入）
 3. **三个并行 API 调用**，使用用户消息作为搜索查询：
    - `getProfile(banks.user, userMessage)` — 通过语义搜索检索跨项目用户个人资料
    - `searchMemories(userMessage, banks.user)` — 通过语义搜索检索相关的用户范围记忆
@@ -204,17 +214,22 @@ AI 助手自动使用此上下文 — 无需手动提示。
 
 `hindsight` 工具对 AI 助手可用：
 
-| 模式      | 参数                         | 描述       |
-| --------- | ---------------------------- | ----------------- |
-| `add`     | `content`, `type?`, `scope?` | 存储记忆（异步） |
-| `search`  | `query`, `scope?`            | 搜索记忆   |
-| `profile` | `query?`                     | 查看用户个人资料 |
-| `list`    | `scope?`, `limit?`           | 列出记忆     |
-| `forget`  | `memoryId`, `scope?`         | 删除记忆     |
+| 模式      | 参数                                      | 描述       |
+| --------- | ----------------------------------------- | ----------------- |
+| `add`     | `content`, `type?`, `scope?`, `bankAlias?` | 存储记忆（异步） |
+| `search`  | `query`, `scope?`, `limit?`, `bankAlias?` | 搜索记忆   |
+| `profile` | `query?`                                  | 查看用户个人资料 |
+| `list`    | `scope?`, `limit?`, `bankAlias?`          | 列出记忆     |
+| `forget`  | `memoryId`, `scope?`, `bankAlias?`        | 删除记忆     |
+| `help`    | 无                                        | 显示工具用法和已配置的 alias |
 
 **作用域：** `user`（跨项目），`project`（默认）
 
 **类型：** `project-config`, `architecture`, `error-solution`, `preference`, `learned-pattern`, `conversation`
+
+**命名说明：** OpenCode 工具名必须是 `hindsight`，并通过 `mode` 参数选择操作，例如 `hindsight(mode: "search", query: "auth flow")`。不要调用 `hindsight_search`、`hindsight_recall`、`hindsight_retain` 等拆分名称。
+
+`bankAlias?` 仅适用于项目范围操作，并且只能使用 `runtimeProjectBanks` 中显式允许的 alias；`scope: "user"`、`profile` 和 `help` 不支持 `bankAlias`。
 
 ### 重要注意事项：
 - **`add` 操作默认是异步的**，以防止记忆处理期间超时
@@ -231,14 +246,17 @@ AI 助手自动使用此上下文 — 无需手动提示。
   // Hindsight 服务器 URL (默认: http://localhost:8888)
   "baseUrl": "http://localhost:8888",
 
+  // 可选：需要鉴权的 Hindsight 服务器 API key
+  "apiKey": "$HINDSIGHT_API_KEY",
+
   // 记忆检索的最小相似度 (0-1, 默认: 0.6)
   "similarityThreshold": 0.6,
 
   // 每次请求注入的最大记忆数 (默认: 5)
   "maxMemories": 5,
 
-  // 列出的最大项目记忆数 (默认: 10)
-  "maxProjectMemories": 10,
+  // 列出的最大项目记忆数 (默认: 20)
+  "maxProjectMemories": 20,
 
   // 注入的最大个人资料事实数 (默认: 5)
   "maxProfileItems": 5,
@@ -255,6 +273,17 @@ AI 助手自动使用此上下文 — 无需手动提示。
   // 可选：设置确切的项目存储库（覆盖自动生成的存储库）
   "projectBank": "my-project-bank",
 
+  // 可选：按 agent 名称或 glob 路由到不同项目 bank
+  "agentProjectBanks": {
+    "review-*": "proj-review",
+    "tdd": "proj-tdd"
+  },
+
+  // 可选：允许单次工具调用使用的项目 bank alias
+  "runtimeProjectBanks": {
+    "other-repo": "proj-other-repo"
+  },
+
   // 召回操作的最大令牌数 (默认: 4096)
   "maxTokens": 4096,
 
@@ -268,6 +297,14 @@ AI 助手自动使用此上下文 — 无需手动提示。
   "compactionThreshold": 0.8
 }
 ```
+
+环境变量优先级：
+
+1. URL：`HINDSIGHT_API_URL` → `HINDSIGHT_BASE_URL` → 配置文件 `baseUrl` → `http://localhost:8888`
+2. API key：`HINDSIGHT_API_KEY` → `HINDSIGHT_API_TENANT_API_KEY` → 配置文件 `apiKey` → 未设置
+3. 其他选项：配置文件 → 默认值
+
+自动生成的 bank 名称：用户 bank 为 `{bankPrefix}_user_<hash>`；项目 bank 为 `p_<目录名>_<hash>`，其中项目 bank 使用固定 `p_` 前缀，不使用 `bankPrefix`。
 
 ## 故障排除
 
@@ -284,6 +321,7 @@ AI 助手自动使用此上下文 — 无需手动提示。
      - 验证插件是否在 `~/.config/opencode/opencode.json` 中
      - 配置更改后重启 OpenCode
      - 检查 Hindsight 服务器是否运行：`curl http://localhost:8888/health`
+   - **工具健康检查**：要求 agent 调用准确的 `hindsight` 工具，例如 `hindsight(mode: "search", scope: "project", query: "manual hindsight health check", limit: 1)`。如果返回 “No tool named hindsight”，说明插件未加载；如果返回鉴权错误，说明插件已加载但 Hindsight API 凭据不正确。
 
 3. **元数据保存不正确**
    - **原因**：Hindsight API 要求所有元数据值必须是字符串
