@@ -7,6 +7,7 @@ import { formatContextForPrompt } from "./services/context.js";
 import { resolveBanks, type ResolvedBanks } from "./services/tags.js";
 import { stripPrivateContent, isFullyPrivate } from "./services/privacy.js";
 import { createCompactionHook, type CompactionContext } from "./services/compaction.js";
+import { createSubagentRetainHook, type SubagentRetainContext } from "./services/subagent-retain.js";
 
 import { isConfigured, CONFIG } from "./config.js";
 import { log } from "./services/logger.js";
@@ -154,6 +155,17 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
         {
           threshold: CONFIG.compactionThreshold,
           getModelLimit,
+        }
+      )
+    : null;
+
+  const subagentRetainHook = isConfigured() && ctx.client
+    ? createSubagentRetainHook(
+        ctx as SubagentRetainContext,
+        ({ agent, directory: sessionDirectory } = {}) => resolveBanks({ directory: sessionDirectory ?? directory, agent: agent ?? undefined }),
+        {
+          enabled: CONFIG.autoRetain.enabled,
+          agents: CONFIG.autoRetain.agents,
         }
       )
     : null;
@@ -505,6 +517,9 @@ export const HindsightPlugin: Plugin = async (ctx: PluginInput) => {
     event: async (input: { event: { type: string; properties?: unknown } }) => {
       if (compactionHook) {
         await compactionHook.event(input);
+      }
+      if (subagentRetainHook) {
+        await subagentRetainHook.event(input);
       }
     },
   };

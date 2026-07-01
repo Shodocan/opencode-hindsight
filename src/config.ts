@@ -26,6 +26,10 @@ interface HindsightConfig {
   compactionThreshold?: number;
   agentProjectBanks?: Record<string, string>;
   runtimeProjectBanks?: Record<string, string>;
+  autoRetain?: {
+    enabled?: boolean;
+    agents?: string[];
+  };
 }
 
 const DEFAULT_KEYWORD_PATTERNS = [
@@ -54,7 +58,7 @@ const DEFAULT_KEYWORD_PATTERNS = [
   "存下来",
 ];
 
-const DEFAULTS: Required<Omit<HindsightConfig, "userBank" | "projectBank" | "baseUrl" | "apiKey" | "agentProjectBanks" | "runtimeProjectBanks">> = {
+const DEFAULTS: Required<Omit<HindsightConfig, "userBank" | "projectBank" | "baseUrl" | "apiKey" | "agentProjectBanks" | "runtimeProjectBanks" | "autoRetain">> = {
   similarityThreshold: 0.6,
   maxMemories: 5,
   maxProjectMemories: 20,
@@ -82,6 +86,17 @@ function validateCompactionThreshold(value: number | undefined): number {
   }
   if (value <= 0 || value > 1) return DEFAULTS.compactionThreshold;
   return value;
+}
+
+function validateAutoRetainEnabled(value: unknown): boolean {
+  return typeof value === 'boolean' ? value : true;
+}
+
+function sanitizeAutoRetainAgents(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(s => typeof s === 'string' ? s.trim() : '')
+    .filter(s => s.length > 0);
 }
 
 function loadConfig(): HindsightConfig {
@@ -199,6 +214,10 @@ export const CONFIG = {
   compactionThreshold: validateCompactionThreshold(fileConfig.compactionThreshold),
   agentProjectBanks: sanitizeBankMap(fileConfig.agentProjectBanks),
   runtimeProjectBanks: sanitizeBankMap(fileConfig.runtimeProjectBanks),
+  autoRetain: {
+    enabled: validateAutoRetainEnabled(fileConfig.autoRetain?.enabled),
+    agents: sanitizeAutoRetainAgents(fileConfig.autoRetain?.agents),
+  },
 };
 
 export function isConfigured(): boolean {
