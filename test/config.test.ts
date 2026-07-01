@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveApiKey, resolveBaseUrl, sanitizeBankMap, sanitizeBankValue } from "../src/config";
+import { resolveApiKey, resolveBaseUrl, sanitizeAutoRetainAgents, sanitizeBankMap, sanitizeBankValue } from "../src/config";
 
 describe("configuration bank value sanitization", () => {
   test("expands full-value env refs for bank values", () => {
@@ -159,8 +159,20 @@ describe("autoRetain config defaults and sanitization", () => {
     expect(CONFIG.autoRetain.enabled).toBe(true);
   });
 
-  test("autoRetain.agents with non-array value defaults to empty array", () => {
+  test("autoRetain.agents with non-array value disables auto-retain (fail closed)", () => {
+    // C-018: Non-array agents must result in enabled=false (fail-closed).
+    // The module-level CONFIG singleton loads from the real config file
+    // (which has no autoRetain), so agents is [] and enabled is true by
+    // default. To test the non-array path we verify the sanitize function
+    // contract directly: the CONFIG builder uses
+    //   const enabled = agentsResult.valid ? validateAutoRetainEnabled(...) : false;
     const { CONFIG } = require("../src/config");
+    // With no config file having autoRetain, agents is [] (valid) and enabled is true
     expect(CONFIG.autoRetain.agents).toEqual([]);
+    expect(CONFIG.autoRetain.enabled).toBe(true);
+    // Verify the sanitize function behavior directly:
+    expect(sanitizeAutoRetainAgents("not-an-array")).toEqual({ agents: [], valid: false });
+    expect(sanitizeAutoRetainAgents(123)).toEqual({ agents: [], valid: false });
+    expect(sanitizeAutoRetainAgents(null)).toEqual({ agents: [], valid: true }); // null = absent = valid
   });
 });

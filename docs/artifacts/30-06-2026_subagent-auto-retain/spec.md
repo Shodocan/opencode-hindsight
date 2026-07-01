@@ -39,6 +39,7 @@ Defaults:
 Sanitization:
 - `enabled`: boolean, default `true` if absent or non-boolean
 - `agents`: string array, each trimmed, empty strings dropped. Empty array = all agents.
+- **Fail-closed**: If `agents` is not an array (e.g. number, object, boolean), `sanitizeAutoRetainAgents` returns `{ agents: [], valid: false }`, and the CONFIG builder sets `enabled: false`. This prevents misconfiguration from silently retaining all agents. (C-026)
 
 ### Touch Set
 
@@ -79,33 +80,38 @@ interface SubagentRetainState {
 const RETAIN_COOLDOWN_MS = 30_000;  // same as compaction cooldown
 ```
 
-**Event handler logic:**
+**Event handler logic (fire-and-forget IIFE pattern):**
 
 ```
 event({ type: "session.deleted", properties }) →
-  1. If !options.enabled → return
-  2. Extract props = properties as Record
-  3. Extract sessionInfo = props.info as Session
-  4. If !sessionInfo?.parentID → return (not a subagent session)
-  5. If retainedSessionIDs.has(sessionInfo.id) → return (already retained)
-  6. Extract directory from sessionInfo.directory or ctx.directory
-  7. Try: fetch messages via ctx.client.session.messages({ path: { id: sessionInfo.id }, query: { directory } })
-  8. If messages fetch fails → log warning, return (graceful skip)
-  9. Find last assistant message (last message where info.role === "assistant")
-  10. If no assistant message → return
-  11. Extract agent = firstString(lastMsg.info.agent, lastMsg.info.mode)
-  12. If options.agents is non-empty and agent doesn't match any pattern → return
-  13. Check cooldown: if agent has recent retain within RETAIN_COOLDOWN_MS → return
-  14. Extract text parts from lastMsg.parts
-  15. If no text parts → return
-  16. Build content = text parts joined by "\n"
-  17. Compute contentHash = sha256(content).slice(0, 16)
-  18. Check content hash dedup: if any existing entry has same hash → return
-  19. Resolve banks: resolveBanksForRetain({ agent })
-  20. Call hindsightClient.addMemory(content, banks.project, { type: "conversation" })
-  21. On success: add sessionInfo.id to retainedSessionIDs, store contentHash
-  22. On failure: log error, do NOT add to retainedSessionIDs (allow retry)
-  23. All operations wrapped in try/catch, never throw
+   1. If !options.enabled → return
+   2. Extract props = properties as Record
+   3. Extract sessionInfo = props.info as Session
+   4. If !sessionInfo?.parentID → return (not a subagent session)
+   5. Reserve sessionID in retainedSessionIDs synchronously (C-002 TOCTOU fix)
+   6. Extract directory from sessionInfo.directory or ctx.directory
+   7. Fire-and-forget IIFE (never await in event handler — C-019):
+      a. Try: fetch messages via ctx.client.session.messages(...)
+      b. If messages fetch fails → log warning, roll back sessionID, return
+      c. Find last assistant message (role === "assistant", summary !== true)
+      d. If no assistant message → roll back sessionID, return
+      e. Extract agent = firstString(info.agent, info.agentName, info.mode)
+      f. If no agent → roll back sessionID, return
+      g. If options.agents is non-empty and agent doesn't match → roll back sessionID, return
+      h. Check cooldown: if agent has recent retain within RETAIN_COOLDOWN_MS → roll back sessionID, return
+      i. Extract text parts, join by "\n"
+      j. C-009: Call stripPrivateContent(rawContent); if isFullyPrivate → skip with log, roll back sessionID
+      k. C-010: If content.length > MAX_RETAIN_CONTENT_LENGTH → skip with log, roll back sessionID
+      l. Resolve banks: resolveBanksForRetain({ agent, directory })
+      m. C-003: Atomic get-or-create bankHashes Set, immediately .set() so concurrent IIFEs share the same instance
+      n. C-005: Reserve contentHash in bankHashes synchronously before addMemory
+      o. C-012: Store cooldown timestamp, save setAt for compare-and-delete
+      p. Call hindsightClient.addMemory(content, banks.project, { type: "conversation" })
+      q. On success: log metadata (no raw content)
+      r. On failure: roll back sessionID, contentHash, cooldown (compare-and-delete)
+      s. Outer catch: comprehensive rollback of sessionID, contentHash, cooldown (C-001)
+   8. IIFE .catch() prevents unhandled rejection (C-004)
+   9. All operations wrapped in try/catch, never throw
 ```
 
 ### 2. Agent Pattern Matching
@@ -155,18 +161,24 @@ function validateAutoRetainEnabled(value: unknown): boolean {
   return typeof value === 'boolean' ? value : true;
 }
 
-function sanitizeAutoRetainAgents(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
+function sanitizeAutoRetainAgents(value: unknown): { agents: string[]; valid: boolean } {
+  if (value === undefined || value === null) return { agents: [], valid: true }; // absent = all agents
+  if (!Array.isArray(value)) return { agents: [], valid: false }; // non-array = fail closed
+  const agents = value
     .map(s => typeof s === 'string' ? s.trim() : '')
     .filter(s => s.length > 0);
+  return { agents, valid: true };
 }
 
 // In CONFIG:
-autoRetain: {
-  enabled: validateAutoRetainEnabled(fileConfig.autoRetain?.enabled),
-  agents: sanitizeAutoRetainAgents(fileConfig.autoRetain?.agents),
-}
+autoRetain: (() => {
+  const agentsResult = sanitizeAutoRetainAgents(fileConfig.autoRetain?.agents);
+  const enabled = agentsResult.valid ? validateAutoRetainEnabled(fileConfig.autoRetain?.enabled) : false;
+  if (!agentsResult.valid) {
+    console.error("[hindsight] autoRetain.agents is not an array — auto-retain disabled.");
+  }
+  return { enabled, agents: agentsResult.agents };
+})(),
 ```
 
 ### 5. `SubagentRetainContext`

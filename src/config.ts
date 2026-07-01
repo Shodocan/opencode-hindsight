@@ -92,7 +92,7 @@ function validateAutoRetainEnabled(value: unknown): boolean {
   return typeof value === 'boolean' ? value : true;
 }
 
-function sanitizeAutoRetainAgents(value: unknown): { agents: string[]; valid: boolean } {
+export function sanitizeAutoRetainAgents(value: unknown): { agents: string[]; valid: boolean } {
   if (value === undefined || value === null) return { agents: [], valid: true }; // absent = all agents (default)
   if (!Array.isArray(value)) return { agents: [], valid: false }; // explicit non-array = invalid, fail closed (C-026)
   const agents = value

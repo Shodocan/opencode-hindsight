@@ -398,8 +398,22 @@ describe("subagentRetainHook wiring", () => {
   });
 
   test("No raw content in logs from subagent retain", async () => {
-    const plugin = await HindsightPlugin(pluginContext() as any);
+    // C-024: Set up mock messages containing a sentinel string and verify
+    // the sentinel does not appear in any log calls.
+    const ctx = pluginContext() as any;
     const sentinel = "subagent-secret-sentinel-content";
+
+    // Override messages to return content with the sentinel
+    ctx.client.session.messages = async () => ({
+      data: [
+        {
+          info: { id: "msg-1", role: "assistant", agent: "review-security" },
+          parts: [{ type: "text", text: `This contains ${sentinel} in the output` }],
+        },
+      ],
+    });
+
+    const plugin = await HindsightPlugin(ctx);
 
     // Fire a session.deleted event — subagentRetainHook should not log raw content
     await plugin.event({
@@ -410,6 +424,9 @@ describe("subagentRetainHook wiring", () => {
         },
       },
     });
+
+    // Wait for the fire-and-forget IIFE to complete
+    await new Promise((r) => setTimeout(r, 50));
 
     expect(JSON.stringify(logCalls)).not.toContain(sentinel);
   });
