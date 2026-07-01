@@ -126,7 +126,7 @@ export function createSubagentRetainHook(
           typeof sessionInfo.id === "string" ? sessionInfo.id : undefined;
         if (!sessionID) return;
 
-        // 4. Dedup by session ID
+        // 4. Dedup by session ID (synchronous — prevents in-flight race, C-001)
         if (state.retainedSessionIDs.has(sessionID)) return;
 
         // 5. Determine directory: prefer session.info.directory, fall back to ctx.directory
@@ -136,106 +136,128 @@ export function createSubagentRetainHook(
             ? sessionInfo.directory.trim()
             : ctx.directory;
 
-        // 6. Fetch messages
-        let messages: Array<{
-          info: any;
-          parts?: Array<{ type: string; text?: string }>;
-        }>;
-        try {
-          const resp = await ctx.client.session.messages({
-            path: { id: sessionID },
-            query: { directory: sessionDirectory },
-          });
-          messages = (resp.data ?? resp) as typeof messages;
-        } catch (err) {
-          log("[subagent-retain] failed to fetch messages", {
-            sessionID,
-            error: String(err),
-          });
-          return; // graceful skip
-        }
-
-        if (!Array.isArray(messages) || messages.length === 0) return;
-
-        // 7. Find last assistant message (skip compaction summaries)
-        const assistantMessages = messages.filter(
-          (m) =>
-            m.info?.role === "assistant" && m.info?.summary !== true,
-        );
-        if (assistantMessages.length === 0) return;
-
-        const lastMsg =
-          assistantMessages[assistantMessages.length - 1]!;
-
-        // 8. Extract agent from last assistant message (preserve PRIOR-002)
-        const agent = firstString(
-          lastMsg.info?.agent,
-          lastMsg.info?.agentName,
-          lastMsg.info?.mode,
-        );
-        if (!agent) return;
-
-        // 9. Check agent allowlist
-        if (!matchAgent(agent, agents)) return;
-
-        // 10. Check cooldown
-        const lastRetain = state.cooldownTimestamps.get(agent) ?? 0;
-        if (Date.now() - lastRetain < RETAIN_COOLDOWN_MS) return;
-
-        // 11. Extract text parts
-        const textParts = (lastMsg.parts ?? [])
-          .filter((p) => p.type === "text" && p.text)
-          .map((p) => p.text!);
-        if (textParts.length === 0) return;
-
-        const content = textParts.join("\n");
-
-        // 12. Resolve banks using session directory
-        const banks = resolveBanksForRetain({
-          agent,
-          directory: sessionDirectory,
-        });
-
-        // 13. Content hash dedup — scoped per-bank
-        const contentHash = sha256(content);
-        const bankHashes =
-          state.retainedContentHashes.get(banks.project) ?? new Set<string>();
-        if (bankHashes.has(contentHash)) return;
-
-        // 14. Retain — fire-and-forget to avoid blocking host
-        hindsightClient
-          .addMemory(content, banks.project, { type: "conversation" })
-          .then((result) => {
-            if (result.success) {
-              state.retainedSessionIDs.add(sessionID);
-              bankHashes.add(contentHash);
-              state.retainedContentHashes.set(banks.project, bankHashes);
-              state.cooldownTimestamps.set(agent, Date.now());
-
-              log("[subagent-retain] retained", {
-                sessionID,
-                agent,
-                projectBankSource: banks.projectSource,
-                agentPattern: banks.agentPattern,
-                contentLength: content.length,
-                contentHash: contentHash.slice(0, 8),
+        // C-019: Fire-and-forget the messages-fetch + retain workflow so the
+        // session.deleted event handler returns promptly without blocking host.
+        void (async () => {
+          try {
+            // 6. Fetch messages
+            let messages: Array<{
+              info: any;
+              parts?: Array<{ type: string; text?: string }>;
+            }>;
+            try {
+              const resp = await ctx.client.session.messages({
+                path: { id: sessionID },
+                query: { directory: sessionDirectory },
               });
-            } else {
-              log("[subagent-retain] addMemory failed", {
+              messages = (resp.data ?? resp) as typeof messages;
+            } catch (err) {
+              log("[subagent-retain] failed to fetch messages", {
                 sessionID,
-                agent,
-                error: result.error || "unknown",
+                error: String(err),
               });
+              return; // graceful skip
             }
-          })
-          .catch((err) => {
-            log("[subagent-retain] addMemory error", {
-              sessionID,
+
+            if (!Array.isArray(messages) || messages.length === 0) return;
+
+            // 7. Find last assistant message (skip compaction summaries)
+            const assistantMessages = messages.filter(
+              (m) =>
+                m.info?.role === "assistant" && m.info?.summary !== true,
+            );
+            if (assistantMessages.length === 0) return;
+
+            const lastMsg =
+              assistantMessages[assistantMessages.length - 1]!;
+
+            // 8. Extract agent from last assistant message (preserve PRIOR-002)
+            const agent = firstString(
+              lastMsg.info?.agent,
+              lastMsg.info?.agentName,
+              lastMsg.info?.mode,
+            );
+            if (!agent) return;
+
+            // 9. Check agent allowlist
+            if (!matchAgent(agent, agents)) return;
+
+            // 10. Check cooldown
+            const lastRetain = state.cooldownTimestamps.get(agent) ?? 0;
+            if (Date.now() - lastRetain < RETAIN_COOLDOWN_MS) return;
+
+            // 11. Extract text parts
+            const textParts = (lastMsg.parts ?? [])
+              .filter((p) => p.type === "text" && p.text)
+              .map((p) => p.text!);
+            if (textParts.length === 0) return;
+
+            const content = textParts.join("\n");
+
+            // 12. Resolve banks using session directory
+            const banks = resolveBanksForRetain({
               agent,
+              directory: sessionDirectory,
+            });
+
+            // 13. Content hash dedup — scoped per-bank
+            const contentHash = sha256(content);
+            const bankHashes =
+              state.retainedContentHashes.get(banks.project) ?? new Set<string>();
+            if (bankHashes.has(contentHash)) return;
+
+            // C-001: Update dedup state BEFORE the fire-and-forget addMemory call
+            // to prevent in-flight race. Remove on failure to allow retry.
+            state.retainedSessionIDs.add(sessionID);
+            bankHashes.add(contentHash);
+            state.retainedContentHashes.set(banks.project, bankHashes);
+            state.cooldownTimestamps.set(agent, Date.now());
+
+            // 14. Retain — fire-and-forget to avoid blocking host
+            hindsightClient
+              .addMemory(content, banks.project, { type: "conversation" })
+              .then((result) => {
+                if (result.success) {
+                  log("[subagent-retain] retained", {
+                    sessionID,
+                    agent,
+                    projectBankSource: banks.projectSource,
+                    agentPattern: banks.agentPattern,
+                    contentLength: content.length,
+                    contentHash: contentHash.slice(0, 8),
+                  });
+                } else {
+                  // C-001: Roll back dedup state on failure to allow retry
+                  state.retainedSessionIDs.delete(sessionID);
+                  bankHashes.delete(contentHash);
+                  state.cooldownTimestamps.delete(agent);
+                  log("[subagent-retain] addMemory failed", {
+                    sessionID,
+                    agent,
+                    error: result.error || "unknown",
+                  });
+                }
+              })
+              .catch((err) => {
+                // C-001: Roll back dedup state on error to allow retry
+                state.retainedSessionIDs.delete(sessionID);
+                bankHashes.delete(contentHash);
+                state.cooldownTimestamps.delete(agent);
+                log("[subagent-retain] addMemory error", {
+                  sessionID,
+                  agent,
+                  error: String(err),
+                });
+              });
+          } catch (err) {
+            // C-001: Roll back session ID on unexpected error to allow retry
+            state.retainedSessionIDs.delete(sessionID);
+            log("[subagent-retain] unexpected error in async workflow", {
+              sessionID,
               error: String(err),
             });
-            // Do NOT add to retainedSessionIDs — allow retry on next event
-          });
+          }
+        })();
       } catch (err) {
         log("[subagent-retain] unexpected error", {
           error: String(err),
