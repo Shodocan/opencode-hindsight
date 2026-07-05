@@ -493,7 +493,18 @@ Create `~/.config/opencode/hindsight.jsonc` or `~/.config/opencode/hindsight.jso
   "keywordPatterns": ["log\\s+this", "write\\s+down"],
 
   // Context usage ratio that triggers compaction (0-1, default: 0.8)
-  "compactionThreshold": 0.8
+  "compactionThreshold": 0.8,
+
+  // Auto-retain subagent results on session.deleted (default: enabled)
+  "autoRetain": {
+    "enabled": true,
+    // Agent name patterns to auto-retain. Supports exact names and `*` glob
+    // patterns. Empty array = all agents.
+    // **Fail-closed**: If `agents` is not a string array (e.g. a number,
+    // object, or boolean), auto-retain is disabled entirely (`enabled: false`).
+    // This prevents misconfiguration from silently retaining all agents.
+    "agents": ["review-*", "tdd-worker"]
+  }
 }
 ```
 

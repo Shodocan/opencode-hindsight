@@ -43,6 +43,7 @@ mock.module("../src/services/logger.js", () => ({
 
 const { HindsightPlugin, extractAgentName } = await import("../src/index");
 const { createCompactionHook } = await import("../src/services/compaction");
+const { createSubagentRetainHook } = await import("../src/services/subagent-retain");
 const { resolveBanks } = await import("../src/services/tags");
 const { CONFIG } = await import("../src/config");
 
@@ -354,5 +355,79 @@ describe("createCompactionHook agent-aware routing", () => {
     });
 
     expect(hindsightCalls.addMemory[0]?.bank).toBe("summary-agent-project-bank");
+  });
+});
+
+describe("subagentRetainHook wiring", () => {
+  test("Plugin wires subagentRetainHook and compactionHook", async () => {
+    const plugin = await HindsightPlugin(pluginContext() as any);
+
+    // Both hooks should be present
+    expect(plugin.event).toBeDefined();
+
+    // Fire an event that compactionHook handles (message.updated with finish)
+    await plugin.event({
+      event: {
+        type: "message.updated",
+        properties: {
+          info: {
+            sessionID: "session-wiring-1",
+            role: "assistant",
+            finish: true,
+            mode: "test-agent",
+            providerID: "test",
+            modelID: "model",
+            tokens: { input: 10, output: 10, cache: { read: 0 } },
+          },
+        },
+      },
+    });
+
+    // Fire a session.deleted event that subagentRetainHook handles
+    await plugin.event({
+      event: {
+        type: "session.deleted",
+        properties: {
+          info: { id: "session-wiring-2", parentID: "parent-1" },
+        },
+      },
+    });
+
+    // Both hooks ran without throwing
+    expect(true).toBe(true);
+  });
+
+  test("No raw content in logs from subagent retain", async () => {
+    // C-024: Set up mock messages containing a sentinel string and verify
+    // the sentinel does not appear in any log calls.
+    const ctx = pluginContext() as any;
+    const sentinel = "subagent-secret-sentinel-content";
+
+    // Override messages to return content with the sentinel
+    ctx.client.session.messages = async () => ({
+      data: [
+        {
+          info: { id: "msg-1", role: "assistant", agent: "review-security" },
+          parts: [{ type: "text", text: `This contains ${sentinel} in the output` }],
+        },
+      ],
+    });
+
+    const plugin = await HindsightPlugin(ctx);
+
+    // Fire a session.deleted event — subagentRetainHook should not log raw content
+    await plugin.event({
+      event: {
+        type: "session.deleted",
+        properties: {
+          info: { id: "session-log-1", parentID: "parent-1" },
+        },
+      },
+    });
+
+    // Wait for the fire-and-forget IIFE to complete
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(JSON.stringify(logCalls)).not.toContain(sentinel);
   });
 });

@@ -26,6 +26,10 @@ interface HindsightConfig {
   compactionThreshold?: number;
   agentProjectBanks?: Record<string, string>;
   runtimeProjectBanks?: Record<string, string>;
+  autoRetain?: {
+    enabled?: boolean;
+    agents?: string[];
+  };
 }
 
 const DEFAULT_KEYWORD_PATTERNS = [
@@ -54,7 +58,7 @@ const DEFAULT_KEYWORD_PATTERNS = [
   "存下来",
 ];
 
-const DEFAULTS: Required<Omit<HindsightConfig, "userBank" | "projectBank" | "baseUrl" | "apiKey" | "agentProjectBanks" | "runtimeProjectBanks">> = {
+const DEFAULTS: Required<Omit<HindsightConfig, "userBank" | "projectBank" | "baseUrl" | "apiKey" | "agentProjectBanks" | "runtimeProjectBanks" | "autoRetain">> = {
   similarityThreshold: 0.6,
   maxMemories: 5,
   maxProjectMemories: 20,
@@ -82,6 +86,19 @@ function validateCompactionThreshold(value: number | undefined): number {
   }
   if (value <= 0 || value > 1) return DEFAULTS.compactionThreshold;
   return value;
+}
+
+function validateAutoRetainEnabled(value: unknown): boolean {
+  return typeof value === 'boolean' ? value : true;
+}
+
+export function sanitizeAutoRetainAgents(value: unknown): { agents: string[]; valid: boolean } {
+  if (value === undefined || value === null) return { agents: [], valid: true }; // absent = all agents (default)
+  if (!Array.isArray(value)) return { agents: [], valid: false }; // explicit non-array = invalid, fail closed (C-026)
+  const agents = value
+    .map(s => typeof s === 'string' ? s.trim() : '')
+    .filter(s => s.length > 0);
+  return { agents, valid: true };
 }
 
 function loadConfig(): HindsightConfig {
@@ -199,6 +216,16 @@ export const CONFIG = {
   compactionThreshold: validateCompactionThreshold(fileConfig.compactionThreshold),
   agentProjectBanks: sanitizeBankMap(fileConfig.agentProjectBanks),
   runtimeProjectBanks: sanitizeBankMap(fileConfig.runtimeProjectBanks),
+  autoRetain: (() => {
+    const agentsResult = sanitizeAutoRetainAgents(fileConfig.autoRetain?.agents);
+    const enabled = agentsResult.valid ? validateAutoRetainEnabled(fileConfig.autoRetain?.enabled) : false;
+    if (!agentsResult.valid) {
+      // C-026: explicit non-array agents config is invalid — fail closed (disable auto-retain)
+      // eslint-disable-next-line no-console
+      console.error("[hindsight] autoRetain.agents is not an array — auto-retain disabled. Use an array of agent name patterns.");
+    }
+    return { enabled, agents: agentsResult.agents };
+  })(),
 };
 
 export function isConfigured(): boolean {
